@@ -1,6 +1,7 @@
 use crate::configuration::AppConfiguration;
 
-pub(crate) async fn run(configuration: AppConfiguration) -> anyhow::Result<()> {
-    tracing::info!(environment = %configuration.environment, "starting database migration");
+#[tracing::instrument(name = "migrate.run", skip_all)]
+pub(crate) async fn run(_configuration: AppConfiguration) -> anyhow::Result<()> {
+    tracing::info!("starting database migration");
     Ok(())
 }

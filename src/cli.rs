@@ -28,3 +28,13 @@ pub enum Command {
     /// Apply the pending database migrations
     Migrate,
 }
+
+impl Command {
+    pub(crate) fn as_str(&self) -> &'static str {
+        match self {
+            Self::Api => "api",
+            Self::Worker => "worker",
+            Self::Migrate => "migrate",
+        }
+    }
+}

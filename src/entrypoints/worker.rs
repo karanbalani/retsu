@@ -1,6 +1,7 @@
 use crate::configuration::AppConfiguration;
 
-pub(crate) async fn run(configuration: AppConfiguration) -> anyhow::Result<()> {
-    tracing::info!(environment = %configuration.environment, "starting background worker");
+#[tracing::instrument(name = "worker.run", skip_all)]
+pub(crate) async fn run(_configuration: AppConfiguration) -> anyhow::Result<()> {
+    tracing::info!("starting background worker");
     Ok(())
 }
