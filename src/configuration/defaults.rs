@@ -62,7 +62,7 @@ fn trace_export_filter() -> String {
 }
 
 fn trace_export_endpoint() -> String {
-    "http://127.0.0.1:4317".to_owned()
+    "http://127.0.0.1:24241".to_owned()
 }
 
 fn trace_export_timeout_seconds() -> u64 {
@@ -81,7 +81,7 @@ impl Default for TraceExportConfig {
 }
 
 fn database_url() -> String {
-    "postgres://retsu@127.0.0.1:5432/retsu".to_owned()
+    "postgres://retsu:retsu_local@127.0.0.1:24240/retsu".to_owned()
 }
 
 fn database_max_connections() -> u32 {

@@ -1,0 +1,160 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  postgres:
+    image: postgres:18.4-alpine
+    environment:
+      POSTGRES_DB: ${RETSU_LOCAL_POSTGRES_DB:-retsu}
+      POSTGRES_USER: ${RETSU_LOCAL_POSTGRES_USER:-retsu}
+      POSTGRES_PASSWORD: ${RETSU_LOCAL_POSTGRES_PASSWORD:-retsu_local}
+    ports:
+      - "127.0.0.1:${RETSU_LOCAL_POSTGRES_PORT:-24240}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\"",
+        ]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+      start_period: 5s
+    stop_grace_period: 10s
+    networks:
+      - backend
+    logging: *default-logging
+
+  prometheus:
+    image: prom/prometheus:v3.13.1
+    profiles:
+      - observability
+    command:
+      - --config.file=/etc/prometheus/prometheus.yaml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+      - --web.enable-lifecycle
+      - --web.enable-remote-write-receiver
+      - --enable-feature=exemplar-storage
+    volumes:
+      - ./infra/local/prometheus/prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "127.0.0.1:${RETSU_LOCAL_PROMETHEUS_PORT:-24245}:9090"
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -q -O /dev/null http://127.0.0.1:9090/-/ready",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 5s
+    stop_grace_period: 10s
+    networks:
+      - observability
+    logging: *default-logging
+
+  tempo:
+    image: grafana/tempo:3.0.2
+    profiles:
+      - observability
+    command:
+      - -target=all
+      - -config.file=/etc/tempo.yaml
+    volumes:
+      - ./infra/local/tempo/tempo.yaml:/etc/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    ports:
+      - "127.0.0.1:${RETSU_LOCAL_TEMPO_PORT:-24244}:3200"
+    expose:
+      - "4317"
+      - "4318"
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    stop_grace_period: 10s
+    networks:
+      - observability
+    logging: *default-logging
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.157.0
+    profiles:
+      - observability
+    command:
+      - --config=/etc/otelcol-contrib/config.yaml
+    volumes:
+      - ./infra/local/otel-collector/config.yaml:/etc/otelcol-contrib/config.yaml:ro
+    ports:
+      - "127.0.0.1:${RETSU_LOCAL_OTLP_GRPC_PORT:-24241}:4317"
+      - "127.0.0.1:${RETSU_LOCAL_OTLP_HTTP_PORT:-24242}:4318"
+      - "127.0.0.1:${RETSU_LOCAL_OTEL_HEALTH_PORT:-24243}:13133"
+    expose:
+      - "8888"
+    depends_on:
+      tempo:
+        condition: service_started
+    stop_grace_period: 10s
+    networks:
+      - observability
+    logging: *default-logging
+
+  grafana:
+    image: grafana/grafana:13.1.1
+    profiles:
+      - observability
+    environment:
+      GF_SECURITY_ADMIN_USER: ${RETSU_LOCAL_GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${RETSU_LOCAL_GRAFANA_PASSWORD:-retsu_local}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_LOG_MODE: console
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./infra/local/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/local/grafana/dashboards:/etc/grafana/dashboards:ro
+    ports:
+      - "127.0.0.1:${RETSU_LOCAL_GRAFANA_PORT:-24246}:3000"
+    depends_on:
+      prometheus:
+        condition: service_healthy
+      tempo:
+        condition: service_started
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -q -O /dev/null http://127.0.0.1:3000/api/health",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 10s
+    stop_grace_period: 10s
+    networks:
+      - observability
+    logging: *default-logging
+
+networks:
+  backend:
+    driver: bridge
+
+  observability:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  prometheus-data:
+  tempo-data:
+  grafana-data:

@@ -12,10 +12,10 @@ telemetry:
   traces:
     enabled: false
     filter: info
-    endpoint: http://127.0.0.1:4317
+    endpoint: http://127.0.0.1:24241
     timeout_seconds: 5
 
 database:
-  url: postgres://retsu@127.0.0.1:5432/retsu
+  url: postgres://retsu:retsu_local@127.0.0.1:24240/retsu
   max_connections: 10
   acquire_timeout_seconds: 5
