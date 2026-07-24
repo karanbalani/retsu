@@ -11,5 +11,6 @@ logging:
 telemetry:
   traces:
     enabled: false
+    filter: info
     endpoint: http://127.0.0.1:4317
     timeout_seconds: 5

@@ -7,7 +7,7 @@ use opentelemetry::{KeyValue, global, trace::TracerProvider as _};
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::{Resource, propagation::TraceContextPropagator, trace::SdkTracerProvider};
 
-use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::{EnvFilter, Layer, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::configuration::{AppConfiguration, LogFormat};
 
@@ -80,41 +80,57 @@ fn install_subscriber(
     configuration: &AppConfiguration,
     tracer_provider: Option<&SdkTracerProvider>,
 ) -> Result<(), ObservabilityError> {
-    let filter = EnvFilter::try_new(&configuration.logging.filter)?;
+    let logging_filter = EnvFilter::try_new(&configuration.logging.filter)
+        .map_err(ObservabilityError::InvalidLoggingFilter)?;
+
+    let trace_filter = EnvFilter::try_new(&configuration.telemetry.traces.filter)
+        .map_err(ObservabilityError::InvalidTraceFilter)?;
 
     match (configuration.logging.format, tracer_provider) {
         (LogFormat::Pretty, None) => {
+            let formatting_layer = fmt::layer().with_target(true).with_filter(logging_filter);
+
             tracing_subscriber::registry()
-                .with(filter)
-                .with(fmt::layer().with_target(true))
+                .with(formatting_layer)
                 .try_init()?;
         }
 
         (LogFormat::Json, None) => {
+            let formatting_layer = fmt::layer()
+                .with_target(true)
+                .json()
+                .with_filter(logging_filter);
+
             tracing_subscriber::registry()
-                .with(filter)
-                .with(fmt::layer().with_target(true).json())
+                .with(formatting_layer)
                 .try_init()?;
         }
 
         (LogFormat::Pretty, Some(provider)) => {
             let tracer = provider.tracer(env!("CARGO_PKG_NAME"));
-            let telemetry_layer = tracing_opentelemetry::layer().with_tracer(tracer);
+            let formatting_layer = fmt::layer().with_target(true).with_filter(logging_filter);
+            let telemetry_layer = tracing_opentelemetry::layer()
+                .with_tracer(tracer)
+                .with_filter(trace_filter);
 
             tracing_subscriber::registry()
-                .with(filter)
-                .with(fmt::layer().with_target(true))
+                .with(formatting_layer)
                 .with(telemetry_layer)
                 .try_init()?;
         }
 
         (LogFormat::Json, Some(provider)) => {
             let tracer = provider.tracer(env!("CARGO_PKG_NAME"));
-            let telemetry_layer = tracing_opentelemetry::layer().with_tracer(tracer);
+            let formatting_layer = fmt::layer()
+                .with_target(true)
+                .json()
+                .with_filter(logging_filter);
+            let telemetry_layer = tracing_opentelemetry::layer()
+                .with_tracer(tracer)
+                .with_filter(trace_filter);
 
             tracing_subscriber::registry()
-                .with(filter)
-                .with(fmt::layer().with_target(true).json())
+                .with(formatting_layer)
                 .with(telemetry_layer)
                 .try_init()?;
         }

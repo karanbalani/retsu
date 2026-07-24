@@ -56,6 +56,10 @@ fn trace_export_enabled() -> bool {
     false
 }
 
+fn trace_export_filter() -> String {
+    "info".to_owned()
+}
+
 fn trace_export_endpoint() -> String {
     "http://127.0.0.1:4317".to_owned()
 }
@@ -68,6 +72,7 @@ impl Default for TraceExportConfig {
     fn default() -> Self {
         Self {
             enabled: trace_export_enabled(),
+            filter: trace_export_filter(),
             endpoint: trace_export_endpoint(),
             timeout_seconds: trace_export_timeout_seconds(),
         }

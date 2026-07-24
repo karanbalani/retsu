@@ -88,6 +88,9 @@ pub(crate) struct TelemetryConfig {
 pub(crate) struct TraceExportConfig {
     pub(crate) enabled: bool,
 
+    #[validate(length(min = 1))]
+    pub(crate) filter: String,
+
     #[validate(url)]
     pub(crate) endpoint: String,
 
