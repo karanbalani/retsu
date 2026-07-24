@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use clap::{Parser, Subcommand};
 
 #[derive(Debug, Parser)]
@@ -7,6 +9,10 @@ use clap::{Parser, Subcommand};
     about = "an observable, distributed priority queue"
 )]
 pub(crate) struct Cli {
+    /// Load configuration from a YAML file
+    #[arg(long, global = true, value_name = "PATH")]
+    pub(crate) config: Option<PathBuf>,
+
     #[command(subcommand)]
     pub(crate) command: Command,
 }
