@@ -6,7 +6,8 @@ use std::{
 use super::{
     AppConfiguration,
     schema::{
-        Environment, HttpConfig, LogFormat, LoggingConfig, TelemetryConfig, TraceExportConfig,
+        DatabaseConfig, Environment, HttpConfig, LogFormat, LoggingConfig, TelemetryConfig,
+        TraceExportConfig,
     },
 };
 
@@ -79,6 +80,28 @@ impl Default for TraceExportConfig {
     }
 }
 
+fn database_url() -> String {
+    "postgres://retsu@127.0.0.1:5432/retsu".to_owned()
+}
+
+fn database_max_connections() -> u32 {
+    10
+}
+
+fn database_acquire_timeout_seconds() -> u64 {
+    5
+}
+
+impl Default for DatabaseConfig {
+    fn default() -> Self {
+        Self {
+            url: database_url(),
+            max_connections: database_max_connections(),
+            acquire_timeout_seconds: database_acquire_timeout_seconds(),
+        }
+    }
+}
+
 impl Default for AppConfiguration {
     fn default() -> Self {
         Self {
@@ -86,6 +109,7 @@ impl Default for AppConfiguration {
             http: HttpConfig::default(),
             logging: LoggingConfig::default(),
             telemetry: TelemetryConfig::default(),
+            database: DatabaseConfig::default(),
         }
     }
 }

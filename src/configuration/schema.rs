@@ -19,6 +19,9 @@ pub(crate) struct AppConfiguration {
 
     #[validate(nested)]
     pub(crate) telemetry: TelemetryConfig,
+
+    #[validate(nested)]
+    pub(crate) database: DatabaseConfig,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Deserialize)]
@@ -96,4 +99,17 @@ pub(crate) struct TraceExportConfig {
 
     #[validate(range(min = 1, max = 60))]
     pub(crate) timeout_seconds: u64,
+}
+
+#[derive(Deserialize, Validate)]
+#[serde(default, deny_unknown_fields)]
+pub(crate) struct DatabaseConfig {
+    #[validate(url)]
+    pub(crate) url: String,
+
+    #[validate(range(min = 1))]
+    pub(crate) max_connections: u32,
+
+    #[validate(range(min = 5, max = 60))]
+    pub(crate) acquire_timeout_seconds: u64,
 }

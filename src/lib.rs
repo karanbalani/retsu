@@ -1,6 +1,7 @@
 mod api;
 mod cli;
 mod configuration;
+mod database;
 mod entrypoints;
 mod observability;
 
