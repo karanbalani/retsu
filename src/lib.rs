@@ -11,7 +11,7 @@ pub async fn run() -> anyhow::Result<()> {
 
     let configuration = configuration::load(cli.config.as_deref())?;
 
-    observability::initialize(&configuration.logging)?;
+    let observability = observability::initialize(&configuration)?;
 
     let process_mode = cli.command.as_str();
 
@@ -23,7 +23,7 @@ pub async fn run() -> anyhow::Result<()> {
         process_mode
     );
 
-    async move {
+    let result = async move {
         tracing::info!("process mode started");
 
         let result = match cli.command {
@@ -46,5 +46,12 @@ pub async fn run() -> anyhow::Result<()> {
         result
     }
     .instrument(process_span)
-    .await
+    .await;
+
+    let shutdown_result = observability.shutdown();
+
+    result?;
+    shutdown_result?;
+
+    Ok(())
 }

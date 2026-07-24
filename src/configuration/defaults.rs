@@ -5,7 +5,9 @@ use std::{
 
 use super::{
     AppConfiguration,
-    schema::{Environment, HttpConfig, LogFormat, LoggingConfig},
+    schema::{
+        Environment, HttpConfig, LogFormat, LoggingConfig, TelemetryConfig, TraceExportConfig,
+    },
 };
 
 pub(super) fn default_config_path() -> PathBuf {
@@ -24,14 +26,6 @@ fn http_port() -> u16 {
     2424 // ee: spells to-and-fro
 }
 
-fn logging_filter() -> String {
-    "info".to_owned()
-}
-
-fn logging_format() -> LogFormat {
-    LogFormat::Pretty
-}
-
 impl Default for HttpConfig {
     fn default() -> Self {
         Self {
@@ -39,6 +33,14 @@ impl Default for HttpConfig {
             port: http_port(),
         }
     }
+}
+
+fn logging_filter() -> String {
+    "info".to_owned()
+}
+
+fn logging_format() -> LogFormat {
+    LogFormat::Pretty
 }
 
 impl Default for LoggingConfig {
@@ -50,12 +52,35 @@ impl Default for LoggingConfig {
     }
 }
 
+fn trace_export_enabled() -> bool {
+    false
+}
+
+fn trace_export_endpoint() -> String {
+    "http://127.0.0.1:4317".to_owned()
+}
+
+fn trace_export_timeout_seconds() -> u64 {
+    5
+}
+
+impl Default for TraceExportConfig {
+    fn default() -> Self {
+        Self {
+            enabled: trace_export_enabled(),
+            endpoint: trace_export_endpoint(),
+            timeout_seconds: trace_export_timeout_seconds(),
+        }
+    }
+}
+
 impl Default for AppConfiguration {
     fn default() -> Self {
         Self {
             environment: environment(),
             http: HttpConfig::default(),
             logging: LoggingConfig::default(),
+            telemetry: TelemetryConfig::default(),
         }
     }
 }

@@ -7,3 +7,9 @@ http:
 logging:
   filter: info
   format: pretty
+
+telemetry:
+  traces:
+    enabled: false
+    endpoint: http://127.0.0.1:4317
+    timeout_seconds: 5

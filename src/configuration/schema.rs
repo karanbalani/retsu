@@ -16,6 +16,9 @@ pub(crate) struct AppConfiguration {
 
     #[validate(nested)]
     pub(crate) logging: LoggingConfig,
+
+    #[validate(nested)]
+    pub(crate) telemetry: TelemetryConfig,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Deserialize)]
@@ -71,4 +74,23 @@ pub(crate) enum LogFormat {
     #[default]
     Pretty,
     Json,
+}
+
+#[derive(Default, Deserialize, Validate)]
+#[serde(default, deny_unknown_fields)]
+pub(crate) struct TelemetryConfig {
+    #[validate(nested)]
+    pub(crate) traces: TraceExportConfig,
+}
+
+#[derive(Deserialize, Validate)]
+#[serde(default, deny_unknown_fields)]
+pub(crate) struct TraceExportConfig {
+    pub(crate) enabled: bool,
+
+    #[validate(url)]
+    pub(crate) endpoint: String,
+
+    #[validate(range(min = 1, max = 60))]
+    pub(crate) timeout_seconds: u64,
 }
