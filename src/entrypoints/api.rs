@@ -6,6 +6,9 @@ use crate::configuration::AppConfiguration;
     fields(bind_address = %configuration.http.socket_address())
 )]
 pub(crate) async fn run(configuration: AppConfiguration) -> anyhow::Result<()> {
-    tracing::info!("starting api server");
+    let bind_address = configuration.http.socket_address();
+
+    crate::api::serve(bind_address).await?;
+
     Ok(())
 }
