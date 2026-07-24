@@ -17,6 +17,8 @@ pub async fn run() -> anyhow::Result<()> {
 
     let observability = observability::initialize(&configuration)?;
 
+    let metrics = observability.metrics();
+
     let process_mode = cli.command.as_str();
 
     let process_span = tracing::info_span!(
@@ -31,9 +33,9 @@ pub async fn run() -> anyhow::Result<()> {
         tracing::info!("process mode started");
 
         let result = match cli.command {
-            cli::Command::Api => entrypoints::api::run(configuration).await,
+            cli::Command::Api => entrypoints::api::run(configuration, metrics).await,
 
-            cli::Command::Worker => entrypoints::worker::run(configuration).await,
+            cli::Command::Worker => entrypoints::worker::run(configuration, metrics).await,
 
             cli::Command::Migrate => entrypoints::migrate::run(configuration).await,
         };

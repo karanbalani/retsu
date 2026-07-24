@@ -1,20 +1,27 @@
 use sqlx::PgPool;
 
-use crate::{configuration::AppConfiguration, database};
+use crate::{configuration::AppConfiguration, database, observability::Metrics};
 
 #[derive(Clone)]
 pub(crate) struct ApplicationContext {
     database_pool: PgPool,
+    metrics: Metrics,
 }
 
 impl ApplicationContext {
     #[tracing::instrument(name = "application.initialize", skip_all, err)]
-    pub(crate) async fn initialize(configuration: &AppConfiguration) -> Result<Self, sqlx::Error> {
+    pub(crate) async fn initialize(
+        configuration: &AppConfiguration,
+        metrics: Metrics,
+    ) -> Result<Self, sqlx::Error> {
         let database_pool = database::connect(&configuration.database).await?;
 
         tracing::info!("application dependencies initialized");
 
-        Ok(Self { database_pool })
+        Ok(Self {
+            database_pool,
+            metrics,
+        })
     }
 
     #[tracing::instrument(name = "application.shutdown", skip_all)]
@@ -27,5 +34,9 @@ impl ApplicationContext {
     #[tracing::instrument(name = "application.readiness", skip_all)]
     pub(crate) async fn check_readiness(&self) -> Result<(), sqlx::Error> {
         database::check_health(&self.database_pool).await
+    }
+
+    pub(crate) fn metrics(&self) -> &Metrics {
+        &self.metrics
     }
 }

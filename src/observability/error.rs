@@ -15,5 +15,11 @@ pub(crate) enum ObservabilityError {
     Exporter(#[from] opentelemetry_otlp::ExporterBuildError),
 
     #[error("failed to shut down the trace provider: {0}")]
-    Shutdown(#[from] opentelemetry_sdk::error::OTelSdkError),
+    TraceShutdown(opentelemetry_sdk::error::OTelSdkError),
+
+    #[error("failed to build the Prometheus metrics exporter: {0}")]
+    MetricsExporter(opentelemetry_sdk::error::OTelSdkError),
+
+    #[error("failed to shut down the metrics provider: {0}")]
+    MetricsShutdown(opentelemetry_sdk::error::OTelSdkError),
 }
