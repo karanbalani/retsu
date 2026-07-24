@@ -1,9 +1,11 @@
 mod api;
+mod app;
 mod cli;
 mod configuration;
 mod database;
 mod entrypoints;
 mod observability;
+mod worker;
 
 use clap::Parser;
 use tracing::Instrument;
