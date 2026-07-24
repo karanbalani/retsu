@@ -23,4 +23,9 @@ impl ApplicationContext {
 
         tracing::info!("application dependencies shut down")
     }
+
+    #[tracing::instrument(name = "application.readiness", skip_all)]
+    pub(crate) async fn check_readiness(&self) -> Result<(), sqlx::Error> {
+        database::check_health(&self.database_pool).await
+    }
 }

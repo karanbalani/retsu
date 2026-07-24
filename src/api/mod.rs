@@ -1,3 +1,5 @@
+mod routes;
+
 use std::{io, net::SocketAddr};
 
 use actix_web::{App, HttpServer, web};
@@ -15,8 +17,12 @@ pub(crate) async fn serve(
 ) -> io::Result<()> {
     let context = web::Data::new(context.clone());
 
-    let server =
-        HttpServer::new(move || App::new().app_data(context.clone())).bind(bind_address)?;
+    let server = HttpServer::new(move || {
+        App::new()
+            .app_data(context.clone())
+            .configure(routes::configure)
+    })
+    .bind(bind_address)?;
 
     tracing::info!(%bind_address, "API server listening");
 

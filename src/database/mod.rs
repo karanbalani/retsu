@@ -33,3 +33,8 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), MigrateError> {
     tracing::info!("database migrations applied");
     Ok(())
 }
+
+pub(crate) async fn check_health(pool: &PgPool) -> Result<(), sqlx::Error> {
+    sqlx::query("SELECT 1").execute(pool).await?;
+    Ok(())
+}
