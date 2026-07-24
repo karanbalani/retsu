@@ -1,6 +1,6 @@
 use crate::configuration::AppConfiguration;
 
 pub(crate) async fn run(configuration: AppConfiguration) -> anyhow::Result<()> {
-    println!("migrate mode {}", configuration.environment);
+    tracing::info!(environment = %configuration.environment, "starting database migration");
     Ok(())
 }

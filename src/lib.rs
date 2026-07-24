@@ -1,6 +1,7 @@
 mod cli;
 mod configuration;
 mod entrypoints;
+mod observability;
 
 use clap::Parser;
 
@@ -8,6 +9,8 @@ pub async fn run() -> anyhow::Result<()> {
     let cli = cli::Cli::parse();
 
     let configuration = configuration::load(cli.config.as_deref())?;
+
+    observability::initialize(&configuration.logging)?;
 
     match cli.command {
         cli::Command::Api => entrypoints::api::run(configuration).await,

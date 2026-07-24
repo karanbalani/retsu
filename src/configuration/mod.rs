@@ -6,7 +6,7 @@ use std::path::Path;
 use validator::Validate;
 
 pub(crate) use error::ConfigurationError;
-pub(crate) use schema::AppConfiguration;
+pub(crate) use schema::{AppConfiguration, LogFormat, LoggingConfig};
 
 pub(crate) fn load(config_path: Option<&Path>) -> Result<AppConfiguration, ConfigurationError> {
     let builder = config::Config::builder();

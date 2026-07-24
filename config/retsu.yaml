@@ -3,3 +3,7 @@ environment: local
 http:
   bind_address: 127.0.0.1
   port: 2424
+
+logging:
+  filter: info
+  format: pretty

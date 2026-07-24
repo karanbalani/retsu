@@ -13,6 +13,9 @@ pub(crate) struct AppConfiguration {
 
     #[validate(nested)]
     pub(crate) http: HttpConfig,
+
+    #[validate(nested)]
+    pub(crate) logging: LoggingConfig,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Deserialize)]
@@ -51,4 +54,21 @@ impl HttpConfig {
     pub(crate) fn socket_address(&self) -> SocketAddr {
         SocketAddr::new(self.bind_address, self.port)
     }
+}
+
+#[derive(Deserialize, Validate)]
+#[serde(default, deny_unknown_fields)]
+pub(crate) struct LoggingConfig {
+    #[validate(length(min = 1))]
+    pub(crate) filter: String,
+
+    pub(crate) format: LogFormat,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum LogFormat {
+    #[default]
+    Pretty,
+    Json,
 }
