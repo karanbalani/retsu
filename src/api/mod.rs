@@ -1,3 +1,4 @@
+mod middleware;
 mod routes;
 
 use std::{io, net::SocketAddr};
@@ -15,11 +16,13 @@ pub(crate) async fn serve(
     context: &ApplicationContext,
     bind_address: SocketAddr,
 ) -> io::Result<()> {
+    let metrics = context.metrics().clone();
     let context = web::Data::new(context.clone());
 
     let server = HttpServer::new(move || {
         App::new()
             .app_data(context.clone())
+            .wrap(middleware::HttpMetricsMiddleware::new(metrics.clone()))
             .configure(routes::configure)
     })
     .bind(bind_address)?;
