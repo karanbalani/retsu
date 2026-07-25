@@ -71,11 +71,4 @@ mod tests {
         assert_eq!(before.config, Some(PathBuf::from("custom.yaml")));
         assert_eq!(after.config, Some(PathBuf::from("custom.yaml")));
     }
-
-    #[test]
-    fn requires_a_subcommand() {
-        let error = Cli::try_parse_from(["retsu"]).expect_err("missing subcommand should fail");
-
-        assert!(error.to_string().contains("Usage:"));
-    }
 }

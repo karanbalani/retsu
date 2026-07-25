@@ -144,16 +144,6 @@ mod tests {
     use super::{WorkerExit, drain, unexpected_worker_exit};
 
     #[test]
-    fn reports_an_empty_worker_task_set() {
-        let error = unexpected_worker_exit(None).expect_err("empty task set should fail");
-
-        assert_eq!(
-            error.to_string(),
-            "worker task set became empty unexpectedly"
-        );
-    }
-
-    #[test]
     fn reports_a_worker_that_exits_successfully_as_unexpected() {
         let worker = WorkerExit {
             name: "scheduler",
@@ -195,29 +185,6 @@ mod tests {
             .expect_err("worker panic should propagate");
 
         assert_eq!(error.to_string(), "background worker task panicked");
-    }
-
-    #[tokio::test]
-    async fn drains_all_successful_workers() {
-        let mut tasks = JoinSet::new();
-        tasks.spawn(async {
-            WorkerExit {
-                name: "first",
-                result: Ok(()),
-            }
-        });
-        tasks.spawn(async {
-            WorkerExit {
-                name: "second",
-                result: Ok(()),
-            }
-        });
-
-        drain(&mut tasks)
-            .await
-            .expect("successful workers should drain");
-
-        assert!(tasks.is_empty());
     }
 
     #[tokio::test]

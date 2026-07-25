@@ -33,7 +33,7 @@ mod tests {
     use super::{normalized_method, normalized_scheme, protocol_version};
 
     #[test]
-    fn preserves_standard_http_methods() {
+    fn normalizes_bounded_http_attributes() {
         let methods = [
             "CONNECT", "DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT", "QUERY", "TRACE",
         ];
@@ -41,34 +41,27 @@ mod tests {
         for method in methods {
             assert_eq!(normalized_method(method), method);
         }
-    }
 
-    #[test]
-    fn bounds_unknown_http_methods() {
-        assert_eq!(normalized_method("PURGE"), "_OTHER");
-        assert_eq!(normalized_method("get"), "_OTHER");
-        assert_eq!(normalized_method(""), "_OTHER");
-    }
+        for method in ["PURGE", "get", ""] {
+            assert_eq!(normalized_method(method), "_OTHER");
+        }
 
-    #[test]
-    fn preserves_only_known_url_schemes() {
-        assert_eq!(normalized_scheme("http"), "http");
-        assert_eq!(normalized_scheme("https"), "https");
-        assert_eq!(normalized_scheme("ftp"), "_OTHER");
-        assert_eq!(normalized_scheme("HTTP"), "_OTHER");
-    }
+        for (scheme, expected) in [
+            ("http", "http"),
+            ("https", "https"),
+            ("ftp", "_OTHER"),
+            ("HTTP", "_OTHER"),
+        ] {
+            assert_eq!(normalized_scheme(scheme), expected);
+        }
 
-    #[test]
-    fn maps_supported_protocol_versions() {
-        let cases = [
+        for (version, expected) in [
             (Version::HTTP_09, "0.9"),
             (Version::HTTP_10, "1.0"),
             (Version::HTTP_11, "1.1"),
             (Version::HTTP_2, "2"),
             (Version::HTTP_3, "3"),
-        ];
-
-        for (version, expected) in cases {
+        ] {
             assert_eq!(protocol_version(version), Some(expected));
         }
     }

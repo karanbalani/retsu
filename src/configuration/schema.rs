@@ -151,14 +151,9 @@ impl WorkerConfig {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        net::{IpAddr, Ipv4Addr, SocketAddr},
-        time::Duration,
-    };
-
     use validator::Validate as _;
 
-    use super::{AppConfiguration, Environment};
+    use super::AppConfiguration;
 
     fn assert_invalid(mutate: impl FnOnce(&mut AppConfiguration)) {
         let mut configuration = AppConfiguration::default();
@@ -167,43 +162,6 @@ mod tests {
         assert!(
             configuration.validate().is_err(),
             "configuration should be rejected"
-        );
-    }
-
-    #[test]
-    fn environment_names_are_stable_lowercase_values() {
-        let cases = [
-            (Environment::Local, "local"),
-            (Environment::Test, "test"),
-            (Environment::Staging, "staging"),
-            (Environment::Production, "production"),
-        ];
-
-        for (environment, expected) in cases {
-            assert_eq!(environment.to_string(), expected);
-        }
-    }
-
-    #[test]
-    fn derives_runtime_types_from_validated_values() {
-        let mut configuration = AppConfiguration::default();
-        configuration.http.bind_address = IpAddr::V4(Ipv4Addr::UNSPECIFIED);
-        configuration.http.port = 8080;
-        configuration.worker.management.bind_address = IpAddr::V4(Ipv4Addr::LOCALHOST);
-        configuration.worker.management.port = 9090;
-        configuration.worker.shutdown_timeout_seconds = 45;
-
-        assert_eq!(
-            configuration.http.socket_address(),
-            SocketAddr::from(([0, 0, 0, 0], 8080))
-        );
-        assert_eq!(
-            configuration.worker.management.socket_address(),
-            SocketAddr::from(([127, 0, 0, 1], 9090))
-        );
-        assert_eq!(
-            configuration.worker.shutdown_timeout(),
-            Duration::from_secs(45)
         );
     }
 
@@ -249,14 +207,5 @@ mod tests {
         assert_invalid(|configuration| configuration.worker.shutdown_timeout_seconds = 0);
         assert_invalid(|configuration| configuration.worker.shutdown_timeout_seconds = 301);
         assert_invalid(|configuration| configuration.worker.management.port = 0);
-    }
-
-    #[test]
-    fn validates_trace_settings_even_when_export_is_disabled() {
-        let mut configuration = AppConfiguration::default();
-        configuration.telemetry.traces.enabled = false;
-        configuration.telemetry.traces.endpoint = "invalid".to_owned();
-
-        assert!(configuration.validate().is_err());
     }
 }

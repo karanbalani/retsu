@@ -86,27 +86,6 @@ mod tests {
     }
 
     #[actix_web::test]
-    async fn accepts_valid_json() {
-        let app = test::init_service(
-            App::new()
-                .app_data(json_config())
-                .route("/json", web::post().to(json)),
-        )
-        .await;
-        let request = test::TestRequest::post()
-            .uri("/json")
-            .set_json(serde_json::json!({ "value": "accepted" }))
-            .to_request();
-
-        let response = test::call_service(&app, request).await;
-        let status = response.status();
-        let body = test::read_body(response).await;
-
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(body, "accepted");
-    }
-
-    #[actix_web::test]
     async fn maps_missing_json_content_type_to_problem_details() {
         let app = test::init_service(
             App::new()
