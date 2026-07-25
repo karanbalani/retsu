@@ -1547,6 +1547,7 @@ dependencies = [
  "portable-atomic",
  "rand 0.9.5",
  "thiserror",
+ "tokio",
 ]
 
 [[package]]
@@ -1854,6 +1855,7 @@ dependencies = [
  "opentelemetry_sdk",
  "prometheus",
  "serde",
+ "serde_json",
  "sqlx",
  "thiserror",
  "tokio",
