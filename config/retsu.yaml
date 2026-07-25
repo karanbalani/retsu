@@ -22,3 +22,6 @@ database:
 
 worker:
   shutdown_timeout_seconds: 30
+  management:
+    bind_address: 127.0.0.1
+    port: 24247

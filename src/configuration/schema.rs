@@ -120,9 +120,27 @@ pub(crate) struct DatabaseConfig {
 
 #[derive(Deserialize, Validate)]
 #[serde(default, deny_unknown_fields)]
+pub(crate) struct WorkerManagementConfig {
+    pub(crate) bind_address: IpAddr,
+
+    #[validate(range(min = 1))]
+    pub(crate) port: u16,
+}
+
+impl WorkerManagementConfig {
+    pub(crate) fn socket_address(&self) -> SocketAddr {
+        SocketAddr::new(self.bind_address, self.port)
+    }
+}
+
+#[derive(Deserialize, Validate)]
+#[serde(default, deny_unknown_fields)]
 pub(crate) struct WorkerConfig {
     #[validate(range(min = 1, max = 300))]
     pub(crate) shutdown_timeout_seconds: u64,
+
+    #[validate(nested)]
+    pub(crate) management: WorkerManagementConfig,
 }
 
 impl WorkerConfig {

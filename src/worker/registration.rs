@@ -9,7 +9,7 @@ pub(crate) type WorkerFuture = Pin<Box<dyn Future<Output = anyhow::Result<()>> +
 pub(crate) type WorkerRunner =
     Box<dyn FnOnce(ApplicationContext, CancellationToken) -> WorkerFuture + Send + 'static>;
 
-pub(crate) struct WorkerResgistration {
+pub(crate) struct WorkerRegistration {
     pub(crate) name: &'static str,
     pub(crate) run: WorkerRunner,
 }

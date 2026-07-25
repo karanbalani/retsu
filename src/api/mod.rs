@@ -1,11 +1,10 @@
-mod middleware;
 mod routes;
 
 use std::{io, net::SocketAddr};
 
 use actix_web::{App, HttpServer, web};
 
-use crate::app::ApplicationContext;
+use crate::{app::ApplicationContext, http::HttpMetricsMiddleware};
 
 #[tracing::instrument(
     name = "api.serve",
@@ -22,7 +21,7 @@ pub(crate) async fn serve(
     let server = HttpServer::new(move || {
         App::new()
             .app_data(context.clone())
-            .wrap(middleware::HttpMetricsMiddleware::new(metrics.clone()))
+            .wrap(HttpMetricsMiddleware::new(metrics.clone()))
             .configure(routes::configure)
     })
     .bind(bind_address)?;

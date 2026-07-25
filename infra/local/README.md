@@ -44,6 +44,9 @@ RETSU_TELEMETRY__TRACES__ENABLED=true cargo run -- api
 - Tempo: http://127.0.0.1:24244
 - Prometheus: http://127.0.0.1:24245
 - Grafana: http://127.0.0.1:24246
+- Worker liveness: http://127.0.0.1:24247/health/live
+- Worker readiness: http://127.0.0.1:24247/health/ready
+- Worker metrics: http://127.0.0.1:24247/metrics
 
 **Grafana defaults to `admin` / `retsu_local` unless overridden in `.env`**
 

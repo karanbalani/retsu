@@ -12,6 +12,13 @@ scrape_configs:
           - host.docker.internal:2424
         labels:
           deployment_environment: local
+          process_mode: api
+
+      - targets:
+          - host.docker.internal:24247
+        labels:
+          deployment_environment: local
+          process_mode: worker
 
   - job_name: otel-collector
     static_configs:

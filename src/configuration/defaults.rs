@@ -7,7 +7,7 @@ use super::{
     AppConfiguration,
     schema::{
         DatabaseConfig, Environment, HttpConfig, LogFormat, LoggingConfig, TelemetryConfig,
-        TraceExportConfig, WorkerConfig,
+        TraceExportConfig, WorkerConfig, WorkerManagementConfig,
     },
 };
 
@@ -110,6 +110,24 @@ impl Default for WorkerConfig {
     fn default() -> Self {
         Self {
             shutdown_timeout_seconds: worker_shutdown_timeout_seconds(),
+            management: WorkerManagementConfig::default(),
+        }
+    }
+}
+
+fn worker_management_bind_address() -> IpAddr {
+    IpAddr::V4(Ipv4Addr::LOCALHOST)
+}
+
+fn worker_management_port() -> u16 {
+    24247
+}
+
+impl Default for WorkerManagementConfig {
+    fn default() -> Self {
+        Self {
+            bind_address: worker_management_bind_address(),
+            port: worker_management_port(),
         }
     }
 }

@@ -4,6 +4,8 @@ mod cli;
 mod configuration;
 mod database;
 mod entrypoints;
+mod http;
+mod management;
 mod modules;
 mod observability;
 mod shutdown;

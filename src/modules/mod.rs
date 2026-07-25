@@ -1,5 +1,5 @@
-use crate::worker::WorkerResgistration;
+use crate::worker::WorkerRegistration;
 
-pub(crate) fn worker_registraions() -> Vec<WorkerResgistration> {
+pub(crate) fn worker_registrations() -> Vec<WorkerRegistration> {
     Vec::new()
 }

@@ -1,9 +1,12 @@
+mod management;
 mod registration;
+
+pub(crate) use management::registration as management_registration;
+pub(crate) use registration::WorkerRegistration;
 
 use std::time::Duration;
 
 use anyhow::{Context, anyhow};
-pub(crate) use registration::WorkerResgistration;
 use tokio::task::{JoinError, JoinSet};
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
@@ -18,7 +21,7 @@ struct WorkerExit {
 #[tracing::instrument(name = "worker.serve", skip_all)]
 pub(crate) async fn serve(
     context: &ApplicationContext,
-    registrations: Vec<WorkerResgistration>,
+    registrations: Vec<WorkerRegistration>,
     shutdown_timeout: Duration,
 ) -> anyhow::Result<()> {
     if registrations.is_empty() {
@@ -38,7 +41,7 @@ pub(crate) async fn serve(
 
         let span = tracing::info_span!("background.worker", worker.name = name);
 
-        tasks.spawn_local(
+        tasks.spawn(
             async move {
                 tracing::info!("background worker started");
                 let result = (run)(context, cancellation).await;
