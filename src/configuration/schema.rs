@@ -148,3 +148,115 @@ impl WorkerConfig {
         Duration::from_secs(self.shutdown_timeout_seconds)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        net::{IpAddr, Ipv4Addr, SocketAddr},
+        time::Duration,
+    };
+
+    use validator::Validate as _;
+
+    use super::{AppConfiguration, Environment};
+
+    fn assert_invalid(mutate: impl FnOnce(&mut AppConfiguration)) {
+        let mut configuration = AppConfiguration::default();
+        mutate(&mut configuration);
+
+        assert!(
+            configuration.validate().is_err(),
+            "configuration should be rejected"
+        );
+    }
+
+    #[test]
+    fn environment_names_are_stable_lowercase_values() {
+        let cases = [
+            (Environment::Local, "local"),
+            (Environment::Test, "test"),
+            (Environment::Staging, "staging"),
+            (Environment::Production, "production"),
+        ];
+
+        for (environment, expected) in cases {
+            assert_eq!(environment.to_string(), expected);
+        }
+    }
+
+    #[test]
+    fn derives_runtime_types_from_validated_values() {
+        let mut configuration = AppConfiguration::default();
+        configuration.http.bind_address = IpAddr::V4(Ipv4Addr::UNSPECIFIED);
+        configuration.http.port = 8080;
+        configuration.worker.management.bind_address = IpAddr::V4(Ipv4Addr::LOCALHOST);
+        configuration.worker.management.port = 9090;
+        configuration.worker.shutdown_timeout_seconds = 45;
+
+        assert_eq!(
+            configuration.http.socket_address(),
+            SocketAddr::from(([0, 0, 0, 0], 8080))
+        );
+        assert_eq!(
+            configuration.worker.management.socket_address(),
+            SocketAddr::from(([127, 0, 0, 1], 9090))
+        );
+        assert_eq!(
+            configuration.worker.shutdown_timeout(),
+            Duration::from_secs(45)
+        );
+    }
+
+    #[test]
+    fn accepts_all_validation_boundaries() {
+        let mut configuration = AppConfiguration::default();
+        configuration.http.port = 1;
+        configuration.telemetry.traces.timeout_seconds = 1;
+        configuration.database.max_connections = 1;
+        configuration.database.acquire_timeout_seconds = 5;
+        configuration.worker.shutdown_timeout_seconds = 1;
+        configuration.worker.management.port = 1;
+
+        configuration
+            .validate()
+            .expect("minimum boundaries should be valid");
+
+        configuration.telemetry.traces.timeout_seconds = 60;
+        configuration.database.acquire_timeout_seconds = 60;
+        configuration.worker.shutdown_timeout_seconds = 300;
+
+        configuration
+            .validate()
+            .expect("maximum boundaries should be valid");
+    }
+
+    #[test]
+    fn rejects_values_outside_the_validation_contract() {
+        assert_invalid(|configuration| configuration.http.port = 0);
+        assert_invalid(|configuration| configuration.logging.filter.clear());
+        assert_invalid(|configuration| configuration.telemetry.traces.filter.clear());
+        assert_invalid(|configuration| {
+            configuration.telemetry.traces.endpoint = "not a URL".to_owned();
+        });
+        assert_invalid(|configuration| configuration.telemetry.traces.timeout_seconds = 0);
+        assert_invalid(|configuration| configuration.telemetry.traces.timeout_seconds = 61);
+        assert_invalid(|configuration| {
+            configuration.database.url = "not a URL".to_owned();
+        });
+        assert_invalid(|configuration| configuration.database.max_connections = 0);
+        assert_invalid(|configuration| configuration.database.acquire_timeout_seconds = 4);
+        assert_invalid(|configuration| configuration.database.acquire_timeout_seconds = 61);
+        assert_invalid(|configuration| configuration.worker.shutdown_timeout_seconds = 0);
+        assert_invalid(|configuration| configuration.worker.shutdown_timeout_seconds = 301);
+        assert_invalid(|configuration| configuration.worker.management.port = 0);
+    }
+
+    #[test]
+    fn validates_trace_settings_even_when_export_is_disabled() {
+        let mut configuration = AppConfiguration::default();
+        configuration.telemetry.traces.enabled = false;
+        configuration.telemetry.traces.endpoint = "invalid".to_owned();
+
+        assert!(configuration.validate().is_err());
+    }
+}
