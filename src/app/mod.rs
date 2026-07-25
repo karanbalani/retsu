@@ -1,11 +1,14 @@
 use sqlx::PgPool;
 
-use crate::{configuration::AppConfiguration, database, observability::Metrics};
+use crate::{
+    configuration::AppConfiguration, database, modules::QueueModule, observability::Metrics,
+};
 
 #[derive(Clone)]
 pub(crate) struct ApplicationContext {
     database_pool: PgPool,
     metrics: Metrics,
+    queue_module: QueueModule,
 }
 
 impl ApplicationContext {
@@ -16,11 +19,14 @@ impl ApplicationContext {
     ) -> Result<Self, sqlx::Error> {
         let database_pool = database::connect(&configuration.database).await?;
 
+        let queue_module = QueueModule::new(database_pool.clone());
+
         tracing::info!("application dependencies initialized");
 
         Ok(Self {
             database_pool,
             metrics,
+            queue_module,
         })
     }
 
@@ -38,5 +44,9 @@ impl ApplicationContext {
 
     pub(crate) fn metrics(&self) -> &Metrics {
         &self.metrics
+    }
+
+    pub(crate) fn queue_module(&self) -> &QueueModule {
+        &self.queue_module
     }
 }
