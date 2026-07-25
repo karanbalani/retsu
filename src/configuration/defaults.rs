@@ -7,7 +7,7 @@ use super::{
     AppConfiguration,
     schema::{
         DatabaseConfig, Environment, HttpConfig, LogFormat, LoggingConfig, TelemetryConfig,
-        TraceExportConfig,
+        TraceExportConfig, WorkerConfig,
     },
 };
 
@@ -102,6 +102,18 @@ impl Default for DatabaseConfig {
     }
 }
 
+fn worker_shutdown_timeout_seconds() -> u64 {
+    30
+}
+
+impl Default for WorkerConfig {
+    fn default() -> Self {
+        Self {
+            shutdown_timeout_seconds: worker_shutdown_timeout_seconds(),
+        }
+    }
+}
+
 impl Default for AppConfiguration {
     fn default() -> Self {
         Self {
@@ -110,6 +122,7 @@ impl Default for AppConfiguration {
             logging: LoggingConfig::default(),
             telemetry: TelemetryConfig::default(),
             database: DatabaseConfig::default(),
+            worker: WorkerConfig::default(),
         }
     }
 }

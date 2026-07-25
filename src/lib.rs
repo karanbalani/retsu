@@ -4,7 +4,9 @@ mod cli;
 mod configuration;
 mod database;
 mod entrypoints;
+mod modules;
 mod observability;
+mod shutdown;
 mod worker;
 
 use clap::Parser;

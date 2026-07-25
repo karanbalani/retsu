@@ -4,7 +4,11 @@ use crate::{app::ApplicationContext, configuration::AppConfiguration, observabil
 pub(crate) async fn run(configuration: AppConfiguration, metrics: Metrics) -> anyhow::Result<()> {
     let context = ApplicationContext::initialize(&configuration, metrics).await?;
 
-    let result = crate::worker::serve(&context).await;
+    let shutdown_timeout = configuration.worker.shutdown_timeout();
+
+    let registrations = crate::modules::worker_registraions();
+
+    let result = crate::worker::serve(&context, registrations, shutdown_timeout).await;
 
     context.shutdown().await;
 

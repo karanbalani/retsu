@@ -19,3 +19,6 @@ database:
   url: postgres://retsu:retsu_local@127.0.0.1:24240/retsu
   max_connections: 10
   acquire_timeout_seconds: 5
+
+worker:
+  shutdown_timeout_seconds: 30

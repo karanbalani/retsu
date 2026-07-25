@@ -1,6 +1,7 @@
 use std::{
     fmt::Display,
     net::{IpAddr, SocketAddr},
+    time::Duration,
 };
 
 use serde::Deserialize;
@@ -22,6 +23,9 @@ pub(crate) struct AppConfiguration {
 
     #[validate(nested)]
     pub(crate) database: DatabaseConfig,
+
+    #[validate(nested)]
+    pub(crate) worker: WorkerConfig,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Deserialize)]
@@ -112,4 +116,17 @@ pub(crate) struct DatabaseConfig {
 
     #[validate(range(min = 5, max = 60))]
     pub(crate) acquire_timeout_seconds: u64,
+}
+
+#[derive(Deserialize, Validate)]
+#[serde(default, deny_unknown_fields)]
+pub(crate) struct WorkerConfig {
+    #[validate(range(min = 1, max = 300))]
+    pub(crate) shutdown_timeout_seconds: u64,
+}
+
+impl WorkerConfig {
+    pub(crate) fn shutdown_timeout(&self) -> Duration {
+        Duration::from_secs(self.shutdown_timeout_seconds)
+    }
 }
