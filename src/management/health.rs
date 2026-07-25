@@ -57,3 +57,52 @@ async fn readiness(context: web::Data<ApplicationContext>) -> HttpResponse {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use actix_web::{
+        App,
+        http::{Method, StatusCode, header::ALLOW},
+        test, web,
+    };
+    use serde_json::Value;
+
+    use super::configure;
+
+    #[actix_web::test]
+    async fn liveness_reports_the_process_as_live() {
+        let app =
+            test::init_service(App::new().service(web::scope("/health").configure(configure)))
+                .await;
+
+        let response = test::call_service(
+            &app,
+            test::TestRequest::get().uri("/health/live").to_request(),
+        )
+        .await;
+        let status = response.status();
+        let body: Value = test::read_body_json(response).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, serde_json::json!({ "status": "live" }));
+    }
+
+    #[actix_web::test]
+    async fn liveness_rejects_unsupported_methods_with_allow_header() {
+        let app =
+            test::init_service(App::new().service(web::scope("/health").configure(configure)))
+                .await;
+        let request = test::TestRequest::default()
+            .method(Method::POST)
+            .uri("/health/live")
+            .to_request();
+
+        let response = test::call_service(&app, request).await;
+
+        assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
+        assert_eq!(
+            response.headers().get(ALLOW),
+            Some(&"GET".parse().expect("valid Allow header"))
+        );
+    }
+}
