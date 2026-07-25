@@ -64,3 +64,19 @@ async fn serve(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use std::net::SocketAddr;
+
+    use super::registration;
+
+    #[test]
+    fn registers_the_management_listener_with_a_stable_name() {
+        let address = SocketAddr::from(([127, 0, 0, 1], 24247));
+
+        let registration = registration(address);
+
+        assert_eq!(registration.name, "management_http");
+    }
+}
