@@ -8,8 +8,9 @@ use actix_web::{
     Error,
     body::MessageBody,
     dev::{Service, ServiceRequest, ServiceResponse, Transform, forward_ready},
-    http::Version,
 };
+
+use super::request::{normalized_method, normalized_scheme, protocol_version};
 
 use crate::observability::Metrics;
 
@@ -102,31 +103,5 @@ where
 
             result
         })
-    }
-}
-
-fn normalized_method(method: &str) -> &str {
-    match method {
-        "CONNECT" | "DELETE" | "GET" | "HEAD" | "OPTIONS" | "PATCH" | "POST" | "PUT" | "QUERY"
-        | "TRACE" => method,
-        _ => "_OTHER",
-    }
-}
-
-fn normalized_scheme(scheme: &str) -> &str {
-    match scheme {
-        "http" | "https" => scheme,
-        _ => "_OTHER",
-    }
-}
-
-fn protocol_version(version: Version) -> Option<&'static str> {
-    match version {
-        Version::HTTP_09 => Some("0.9"),
-        Version::HTTP_10 => Some("1.0"),
-        Version::HTTP_11 => Some("1.1"),
-        Version::HTTP_2 => Some("2"),
-        Version::HTTP_3 => Some("3"),
-        _ => None,
     }
 }

@@ -137,6 +137,8 @@ fn install_subscriber(
             let formatting_layer = fmt::layer()
                 .with_target(true)
                 .json()
+                .with_current_span(true)
+                .with_span_list(true)
                 .with_filter(logging_filter);
 
             tracing_subscriber::registry()
@@ -162,6 +164,8 @@ fn install_subscriber(
             let formatting_layer = fmt::layer()
                 .with_target(true)
                 .json()
+                .with_current_span(true)
+                .with_span_list(true)
                 .with_filter(logging_filter);
             let telemetry_layer = tracing_opentelemetry::layer()
                 .with_tracer(tracer)

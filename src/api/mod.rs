@@ -4,7 +4,10 @@ use std::{io, net::SocketAddr};
 
 use actix_web::{App, HttpServer, web};
 
-use crate::{app::ApplicationContext, http::HttpMetricsMiddleware};
+use crate::{
+    app::ApplicationContext,
+    http::{HttpMetricsMiddleware, HttpTracingMiddleware},
+};
 
 #[tracing::instrument(
     name = "api.serve",
@@ -22,6 +25,7 @@ pub(crate) async fn serve(
         App::new()
             .app_data(context.clone())
             .wrap(HttpMetricsMiddleware::new(metrics.clone()))
+            .wrap(HttpTracingMiddleware)
             .configure(routes::configure)
     })
     .bind(bind_address)?;
