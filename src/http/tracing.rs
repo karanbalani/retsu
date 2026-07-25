@@ -4,7 +4,7 @@ use std::{
 };
 
 use actix_web::{
-    Error,
+    Error, HttpMessage as _,
     body::MessageBody,
     dev::{Service, ServiceRequest, ServiceResponse, Transform, forward_ready},
     http::header::HeaderMap,
@@ -18,7 +18,10 @@ use tokio::time::Instant;
 use tracing::{Instrument, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
-use crate::http::request::{normalized_method, normalized_scheme, protocol_version};
+use crate::http::{
+    RequestId,
+    request::{normalized_method, normalized_scheme, protocol_version},
+};
 
 pub(crate) struct HttpTracingMiddleware;
 
@@ -64,6 +67,7 @@ where
         let scheme = normalized_scheme(request.connection_info().scheme()).to_owned();
         let protocol_version = protocol_version(request.version());
         let started_at = Instant::now();
+        let request_id = request.extensions().get::<RequestId>().cloned();
 
         let parent_context = global::get_text_map_propagator(|propogator| {
             propogator.extract(&HeaderExtractor(request.headers()))
@@ -80,10 +84,15 @@ where
             "http.response.status_code" = tracing::field::Empty,
             "error.type" = tracing::field::Empty,
             trace_id = tracing::field::Empty,
-            span_id = tracing::field::Empty
+            span_id = tracing::field::Empty,
+            "request.id" = tracing::field::Empty
         );
 
         let _ = span.set_parent(parent_context);
+
+        if let Some(request_id) = request_id {
+            span.record("request.id", request_id.as_str());
+        }
 
         record_trace_context(&span);
 

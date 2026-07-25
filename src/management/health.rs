@@ -23,8 +23,8 @@ enum HealthStatus {
 
 pub(super) fn configure(configuration: &mut web::ServiceConfig) {
     configuration
-        .route("/live", web::get().to(liveness))
-        .route("/ready", web::get().to(readiness));
+        .service(web::resource("/live").route(web::get().to(liveness)))
+        .service(web::resource("/ready").route(web::get().to(readiness)));
 }
 
 async fn liveness() -> HttpResponse {

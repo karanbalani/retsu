@@ -1,4 +1,8 @@
+mod error;
+mod extractors;
 mod routes;
+
+pub(crate) use error::ApiError;
 
 use std::{io, net::SocketAddr};
 
@@ -6,7 +10,9 @@ use actix_web::{App, HttpServer, web};
 
 use crate::{
     app::ApplicationContext,
-    http::{HttpMetricsMiddleware, HttpTracingMiddleware},
+    http::{
+        HttpMetricsMiddleware, HttpTracingMiddleware, RequestIdMiddleware, default_response_headers,
+    },
 };
 
 #[tracing::instrument(
@@ -24,9 +30,15 @@ pub(crate) async fn serve(
     let server = HttpServer::new(move || {
         App::new()
             .app_data(context.clone())
+            .app_data(extractors::json_config())
+            .app_data(extractors::path_config())
+            .app_data(extractors::query_config())
             .wrap(HttpMetricsMiddleware::new(metrics.clone()))
+            .wrap(default_response_headers())
             .wrap(HttpTracingMiddleware)
+            .wrap(RequestIdMiddleware)
             .configure(routes::configure)
+            .default_service(web::to(error::not_found))
     })
     .bind(bind_address)?;
 

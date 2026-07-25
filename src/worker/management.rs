@@ -5,7 +5,10 @@ use anyhow::Context as _;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    app::ApplicationContext, http::HttpMetricsMiddleware, management, worker::WorkerRegistration,
+    app::ApplicationContext,
+    http::{HttpMetricsMiddleware, RequestIdMiddleware, default_response_headers},
+    management,
+    worker::WorkerRegistration,
 };
 
 pub(crate) fn registration(bind_address: SocketAddr) -> WorkerRegistration {
@@ -29,6 +32,8 @@ async fn serve(
         App::new()
             .app_data(context.clone())
             .wrap(HttpMetricsMiddleware::new(metrics.clone()))
+            .wrap(default_response_headers())
+            .wrap(RequestIdMiddleware)
             .configure(management::configure)
     })
     .keep_alive(None)

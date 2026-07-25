@@ -3,7 +3,7 @@ use actix_web::{HttpResponse, error::ErrorInternalServerError, http::header::CON
 use crate::app::ApplicationContext;
 
 pub(super) fn configure(configuration: &mut web::ServiceConfig) {
-    configuration.route("/metrics", web::get().to(scrape));
+    configuration.service(web::resource("/metrics").route(web::get().to(scrape)));
 }
 
 async fn scrape(context: web::Data<ApplicationContext>) -> actix_web::Result<HttpResponse> {
