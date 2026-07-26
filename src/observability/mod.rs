@@ -16,9 +16,9 @@ use tracing_subscriber::{EnvFilter, Layer, fmt, layer::SubscriberExt, util::Subs
 use crate::configuration::{AppConfiguration, LogFormat};
 
 pub(crate) use error::ObservabilityError;
-pub(crate) use metrics::Metrics;
 #[cfg(test)]
 pub(crate) use metrics::test_metrics;
+pub(crate) use metrics::{Metrics, QueueMetrics};
 
 pub(crate) struct Observability {
     tracer_provider: Option<SdkTracerProvider>,
