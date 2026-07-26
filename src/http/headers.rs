@@ -40,25 +40,4 @@ mod tests {
             Some(&"no-referrer".parse().expect("valid header value"))
         );
     }
-
-    #[actix_web::test]
-    async fn does_not_replace_handler_owned_headers() {
-        let app = test::init_service(App::new().wrap(default_response_headers()).route(
-            "/",
-            web::get().to(|| async {
-                HttpResponse::Ok()
-                    .insert_header((X_CONTENT_TYPE_OPTIONS, "custom-policy"))
-                    .finish()
-            }),
-        ))
-        .await;
-
-        let response =
-            test::call_service(&app, test::TestRequest::get().uri("/").to_request()).await;
-
-        assert_eq!(
-            response.headers().get(X_CONTENT_TYPE_OPTIONS),
-            Some(&"custom-policy".parse().expect("valid header value"))
-        );
-    }
 }

@@ -38,3 +38,53 @@ fn map_create_queue_error(error: CreateQueueError) -> ApiError {
         CreateQueueError::Persistence(error) => ApiError::internal(error),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use actix_web::{ResponseError as _, body::to_bytes, http::StatusCode};
+    use serde_json::Value;
+
+    use super::{
+        super::super::domain::QueueNameError, CreateQueueError, QueueSettingsError,
+        map_create_queue_error,
+    };
+
+    #[actix_web::test]
+    async fn maps_queue_failures_to_stable_http_error_codes() {
+        let cases = [
+            (
+                CreateQueueError::InvalidName(QueueNameError::InvalidFormat),
+                StatusCode::BAD_REQUEST,
+                "invalid_queue_name",
+            ),
+            (
+                CreateQueueError::InvalidSettings(QueueSettingsError::InvalidVisibilityTimeout),
+                StatusCode::BAD_REQUEST,
+                "invalid_visibility_timeout",
+            ),
+            (
+                CreateQueueError::InvalidSettings(QueueSettingsError::InvalidMaxDeliveryAttempts),
+                StatusCode::BAD_REQUEST,
+                "invalid_max_delivery_attempts",
+            ),
+            (
+                CreateQueueError::AlreadyExists,
+                StatusCode::CONFLICT,
+                "queue_already_exists",
+            ),
+        ];
+
+        for (error, expected_status, expected_code) in cases {
+            let response = map_create_queue_error(error).error_response();
+            let status = response.status();
+            let body = to_bytes(response.into_body())
+                .await
+                .expect("problem response body should be readable");
+            let body: Value =
+                serde_json::from_slice(&body).expect("problem response body should be JSON");
+
+            assert_eq!(status, expected_status);
+            assert_eq!(body["code"], expected_code);
+        }
+    }
+}
