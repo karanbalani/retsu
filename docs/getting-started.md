@@ -2,8 +2,9 @@
 
 Use this guide to run Retsu on your computer.
 
-Retsu is still being built. You can create queues, add messages, and get the
-next waiting message. Completing or retrying messages is not available yet.
+Retsu is still being built. You can create queues, add messages, get the next
+waiting message, and mark it as complete. Timed-out messages can be tried again
+when the worker is running.
 
 ## What you need
 
@@ -54,7 +55,8 @@ A ready API returns:
 {"status":"ready"}
 ```
 
-You can now [create a queue, add a message, and get the next one](queues.md).
+Follow the [queues and messages guide](queues.md) to create a queue, add a
+message, get the next one, and complete it.
 
 Start the worker in a separate terminal:
 
@@ -62,7 +64,8 @@ Start the worker in a separate terminal:
 just worker
 ```
 
-The worker starts successfully, but it does not process messages yet.
+The worker makes messages available again when they are not completed before
+their visibility timeout.
 
 Run `just` without arguments to see all available commands:
 
