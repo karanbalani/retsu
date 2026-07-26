@@ -109,37 +109,68 @@ mod tests {
     use serde_json::Value;
 
     use super::{
-        super::super::domain::QueueNameError, CreateQueueError, QueueSettingsError,
-        map_create_queue_error,
+        super::super::domain::{MessageValidationError, QueueNameError},
+        CreateQueueError, DequeueMessageError, EnqueueMessageError, QueueSettingsError,
+        map_create_queue_error, map_dequeue_message_error, map_enqueue_message_error,
     };
 
     #[actix_web::test]
     async fn maps_queue_failures_to_stable_http_error_codes() {
         let cases = [
             (
-                CreateQueueError::InvalidName(QueueNameError::InvalidFormat),
+                map_create_queue_error(CreateQueueError::InvalidName(
+                    QueueNameError::InvalidFormat,
+                )),
                 StatusCode::BAD_REQUEST,
                 "invalid_queue_name",
             ),
             (
-                CreateQueueError::InvalidSettings(QueueSettingsError::InvalidVisibilityTimeout),
+                map_create_queue_error(CreateQueueError::InvalidSettings(
+                    QueueSettingsError::InvalidVisibilityTimeout,
+                )),
                 StatusCode::BAD_REQUEST,
                 "invalid_visibility_timeout",
             ),
             (
-                CreateQueueError::InvalidSettings(QueueSettingsError::InvalidMaxDeliveryAttempts),
+                map_create_queue_error(CreateQueueError::InvalidSettings(
+                    QueueSettingsError::InvalidMaxDeliveryAttempts,
+                )),
                 StatusCode::BAD_REQUEST,
                 "invalid_max_delivery_attempts",
             ),
             (
-                CreateQueueError::AlreadyExists,
+                map_create_queue_error(CreateQueueError::AlreadyExists),
                 StatusCode::CONFLICT,
                 "queue_already_exists",
+            ),
+            (
+                map_enqueue_message_error(EnqueueMessageError::InvalidMessage(
+                    MessageValidationError::InvalidPriority,
+                )),
+                StatusCode::BAD_REQUEST,
+                "invalid_priority",
+            ),
+            (
+                map_enqueue_message_error(EnqueueMessageError::InvalidMessage(
+                    MessageValidationError::InvalidTtl,
+                )),
+                StatusCode::BAD_REQUEST,
+                "invalid_ttl",
+            ),
+            (
+                map_enqueue_message_error(EnqueueMessageError::QueueNotFound),
+                StatusCode::NOT_FOUND,
+                "queue_not_found",
+            ),
+            (
+                map_dequeue_message_error(DequeueMessageError::QueueNotFound),
+                StatusCode::NOT_FOUND,
+                "queue_not_found",
             ),
         ];
 
         for (error, expected_status, expected_code) in cases {
-            let response = map_create_queue_error(error).error_response();
+            let response = error.error_response();
             let status = response.status();
             let body = to_bytes(response.into_body())
                 .await
