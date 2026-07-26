@@ -29,3 +29,167 @@ pub(in crate::modules::queue) use acknowledge_message::{
 pub(in crate::modules::queue) use requeue_timed_out_messages::{
     RequeueTimedOutMessagesError, execute as execute_requeue_timed_out_messages,
 };
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use std::sync::{
+        Mutex,
+        atomic::{AtomicU32, Ordering},
+    };
+
+    use uuid::Uuid;
+
+    use super::{
+        AcknowledgeMessageCommand, AcknowledgeMessageError, AcknowledgeMessageOutcome,
+        DequeueMessageOutcome, EnqueueMessageOutcome, MessageRepository,
+        execute_acknowledge_message, execute_requeue_timed_out_messages,
+    };
+    use crate::modules::queue::domain::Message;
+
+    struct FakeMessageRepository {
+        acknowledge_outcome: AcknowledgeMessageOutcome,
+        acknowledge_call: Mutex<Option<(String, Uuid, Uuid)>>,
+        requeued_count: u64,
+        requeue_batch_size: AtomicU32,
+    }
+
+    impl FakeMessageRepository {
+        fn with_acknowledge_outcome(outcome: AcknowledgeMessageOutcome) -> Self {
+            Self {
+                acknowledge_outcome: outcome,
+                acknowledge_call: Mutex::new(None),
+                requeued_count: 0,
+                requeue_batch_size: AtomicU32::new(0),
+            }
+        }
+
+        fn with_requeued_count(requeued_count: u64) -> Self {
+            Self {
+                acknowledge_outcome: AcknowledgeMessageOutcome::Acknowledged,
+                acknowledge_call: Mutex::new(None),
+                requeued_count,
+                requeue_batch_size: AtomicU32::new(0),
+            }
+        }
+    }
+
+    impl MessageRepository for FakeMessageRepository {
+        async fn enqueue_message(
+            &self,
+            _queue_name: &str,
+            _message: &Message,
+        ) -> Result<EnqueueMessageOutcome, anyhow::Error> {
+            unreachable!("lifecycle tests should not enqueue messages")
+        }
+
+        async fn dequeue_message(
+            &self,
+            _queue_name: &str,
+            _receipt_handle: Uuid,
+        ) -> Result<DequeueMessageOutcome, anyhow::Error> {
+            unreachable!("lifecycle tests should not dequeue messages")
+        }
+
+        async fn acknowledge_message(
+            &self,
+            queue_name: &str,
+            message_id: Uuid,
+            receipt_handle: Uuid,
+        ) -> Result<AcknowledgeMessageOutcome, anyhow::Error> {
+            self.acknowledge_call
+                .lock()
+                .expect("acknowledgement call lock should not be poisoned")
+                .replace((queue_name.to_owned(), message_id, receipt_handle));
+
+            Ok(match self.acknowledge_outcome {
+                AcknowledgeMessageOutcome::Acknowledged => AcknowledgeMessageOutcome::Acknowledged,
+                AcknowledgeMessageOutcome::QueueNotFound => {
+                    AcknowledgeMessageOutcome::QueueNotFound
+                }
+                AcknowledgeMessageOutcome::MessageNotFound => {
+                    AcknowledgeMessageOutcome::MessageNotFound
+                }
+                AcknowledgeMessageOutcome::ReceiptHandleInvalid => {
+                    AcknowledgeMessageOutcome::ReceiptHandleInvalid
+                }
+            })
+        }
+
+        async fn requeue_timed_out_messages(&self, batch_size: u32) -> Result<u64, anyhow::Error> {
+            self.requeue_batch_size.store(batch_size, Ordering::Relaxed);
+            Ok(self.requeued_count)
+        }
+    }
+
+    #[tokio::test]
+    async fn acknowledges_the_exact_message_delivery() {
+        let repository = FakeMessageRepository::with_acknowledge_outcome(
+            AcknowledgeMessageOutcome::Acknowledged,
+        );
+        let message_id = Uuid::now_v7();
+        let receipt_handle = Uuid::new_v4();
+
+        execute_acknowledge_message(
+            &repository,
+            AcknowledgeMessageCommand::new("email-delivery".to_owned(), message_id, receipt_handle),
+        )
+        .await
+        .expect("current message delivery should be acknowledged");
+
+        let call = repository
+            .acknowledge_call
+            .lock()
+            .expect("acknowledgement call lock should not be poisoned");
+        let (queue_name, actual_message_id, actual_receipt_handle) = call
+            .as_ref()
+            .expect("repository should receive the acknowledgement");
+
+        assert_eq!(queue_name, "email-delivery");
+        assert_eq!(*actual_message_id, message_id);
+        assert_eq!(*actual_receipt_handle, receipt_handle);
+    }
+
+    #[tokio::test]
+    async fn preserves_distinct_acknowledgement_failures() {
+        async fn result_for(
+            outcome: AcknowledgeMessageOutcome,
+        ) -> Result<(), AcknowledgeMessageError> {
+            let repository = FakeMessageRepository::with_acknowledge_outcome(outcome);
+
+            execute_acknowledge_message(
+                &repository,
+                AcknowledgeMessageCommand::new(
+                    "email-delivery".to_owned(),
+                    Uuid::now_v7(),
+                    Uuid::new_v4(),
+                ),
+            )
+            .await
+        }
+
+        assert!(matches!(
+            result_for(AcknowledgeMessageOutcome::QueueNotFound).await,
+            Err(AcknowledgeMessageError::QueueNotFound)
+        ));
+        assert!(matches!(
+            result_for(AcknowledgeMessageOutcome::MessageNotFound).await,
+            Err(AcknowledgeMessageError::MessageNotFound)
+        ));
+        assert!(matches!(
+            result_for(AcknowledgeMessageOutcome::ReceiptHandleInvalid).await,
+            Err(AcknowledgeMessageError::ReceiptHandleInvalid)
+        ));
+    }
+
+    #[tokio::test]
+    async fn forwards_the_requeue_batch_and_returns_the_affected_count() {
+        let repository = FakeMessageRepository::with_requeued_count(37);
+
+        let requeued = execute_requeue_timed_out_messages(&repository, 500)
+            .await
+            .expect("timed-out messages should be requeued");
+
+        assert_eq!(requeued, 37);
+        assert_eq!(repository.requeue_batch_size.load(Ordering::Relaxed), 500);
+    }
+}
