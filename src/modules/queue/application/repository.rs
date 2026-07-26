@@ -1,4 +1,6 @@
-use super::super::domain::{Message, Queue};
+use uuid::Uuid;
+
+use super::super::domain::{Message, MessagePriority, Queue};
 
 pub(in crate::modules::queue) enum CreateQueueOutcome {
     Created,
@@ -7,6 +9,18 @@ pub(in crate::modules::queue) enum CreateQueueOutcome {
 
 pub(in crate::modules::queue) enum EnqueueMessageOutcome {
     Enqueued,
+    QueueNotFound,
+}
+
+pub(in crate::modules::queue) enum DequeueMessageOutcome {
+    Dequeued {
+        id: Uuid,
+        payload: String,
+        priority: MessagePriority,
+        receipt_handle: Uuid,
+        delivery_attempts: u16,
+    },
+    Empty,
     QueueNotFound,
 }
 
@@ -20,4 +34,10 @@ pub(in crate::modules::queue) trait MessageRepository {
         queue_name: &str,
         message: &Message,
     ) -> Result<EnqueueMessageOutcome, anyhow::Error>;
+
+    async fn dequeue_message(
+        &self,
+        queue_name: &str,
+        receipt_handle: Uuid,
+    ) -> Result<DequeueMessageOutcome, anyhow::Error>;
 }

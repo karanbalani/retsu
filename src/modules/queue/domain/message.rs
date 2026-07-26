@@ -63,6 +63,15 @@ impl MessagePriority {
         }
     }
 
+    pub(in crate::modules::queue) fn from_rank(rank: i16) -> Option<Self> {
+        match rank {
+            3 => Some(Self::High),
+            2 => Some(Self::Medium),
+            1 => Some(Self::Low),
+            _ => None,
+        }
+    }
+
     pub(in crate::modules::queue) fn as_str(self) -> &'static str {
         match self {
             Self::High => "HIGH",

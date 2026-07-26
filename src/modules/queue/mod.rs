@@ -7,8 +7,9 @@ use actix_web::web;
 use sqlx::PgPool;
 
 use application::{
-    CreateQueueCommand, CreateQueueError, CreatedQueue, EnqueueMessageCommand, EnqueueMessageError,
-    EnqueuedMessage, execute_create_queue, execute_enqueue_message,
+    CreateQueueCommand, CreateQueueError, CreatedQueue, DequeueMessageCommand, DequeueMessageError,
+    DequeuedMessage, EnqueueMessageCommand, EnqueueMessageError, EnqueuedMessage,
+    execute_create_queue, execute_dequeue_message, execute_enqueue_message,
 };
 use infrastructure::PostgresQueueRepository;
 
@@ -49,6 +50,13 @@ impl QueueModule {
             .message_enqueued(message.queue_name(), message.priority());
 
         Ok(message)
+    }
+
+    async fn dequeue_message(
+        &self,
+        command: DequeueMessageCommand,
+    ) -> Result<Option<DequeuedMessage>, DequeueMessageError> {
+        execute_dequeue_message(&self.repository, command).await
     }
 }
 

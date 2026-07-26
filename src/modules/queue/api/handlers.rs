@@ -4,12 +4,12 @@ use crate::{api::ApiError, app::ApplicationContext};
 
 use super::{
     super::{
-        application::{CreateQueueError, EnqueueMessageError},
+        application::{CreateQueueError, DequeueMessageError, EnqueueMessageError},
         domain::{MessageValidationError, QueueSettingsError},
     },
     dto::{
-        CreateQueueRequest, CreateQueueResponse, EnqueueMessageRequest, EnqueueMessageResponse,
-        QueuePath,
+        CreateQueueRequest, CreateQueueResponse, DequeueMessageResponse, EnqueueMessageRequest,
+        EnqueueMessageResponse, QueuePath,
     },
 };
 
@@ -74,6 +74,32 @@ fn map_enqueue_message_error(error: EnqueueMessageError) -> ApiError {
             ApiError::resource_not_found("queue_not_found", "the requested queue does not exist")
         }
         EnqueueMessageError::Persistence(error) => ApiError::internal(error),
+    }
+}
+
+pub(super) async fn dequeue_message(
+    context: web::Data<ApplicationContext>,
+    path: web::Path<QueuePath>,
+) -> Result<HttpResponse, ApiError> {
+    let command = path.into_inner().into_dequeue_command();
+
+    match context
+        .queue_module()
+        .dequeue_message(command)
+        .await
+        .map_err(map_dequeue_message_error)?
+    {
+        Some(message) => Ok(HttpResponse::Ok().json(DequeueMessageResponse::from(message))),
+        None => Ok(HttpResponse::NoContent().finish()),
+    }
+}
+
+fn map_dequeue_message_error(error: DequeueMessageError) -> ApiError {
+    match error {
+        DequeueMessageError::QueueNotFound => {
+            ApiError::resource_not_found("queue_not_found", "the requested queue does not exist")
+        }
+        DequeueMessageError::Persistence(error) => ApiError::internal(error),
     }
 }
 

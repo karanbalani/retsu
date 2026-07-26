@@ -1,4 +1,5 @@
 mod create_queue;
+mod dequeue_message;
 mod enqueue_message;
 mod repository;
 
@@ -7,7 +8,12 @@ pub(in crate::modules::queue) use create_queue::{
 };
 
 pub(in crate::modules::queue) use repository::{
-    CreateQueueOutcome, EnqueueMessageOutcome, MessageRepository, QueueRepository,
+    CreateQueueOutcome, DequeueMessageOutcome, EnqueueMessageOutcome, MessageRepository,
+    QueueRepository,
+};
+
+pub(in crate::modules::queue) use dequeue_message::{
+    DequeueMessageCommand, DequeueMessageError, DequeuedMessage, execute as execute_dequeue_message,
 };
 
 pub(in crate::modules::queue) use enqueue_message::{

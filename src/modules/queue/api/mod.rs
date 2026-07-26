@@ -10,6 +10,10 @@ pub(super) fn configure(configuration: &mut web::ServiceConfig) {
             .route(
                 "/{queue_name}/messages",
                 web::post().to(handlers::enqueue_message),
+            )
+            .route(
+                "/{queue_name}/messages/dequeue",
+                web::post().to(handlers::dequeue_message),
             ),
     );
 }
