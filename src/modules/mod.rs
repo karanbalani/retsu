@@ -21,5 +21,5 @@ pub(crate) fn configure_api(configuration: &mut web::ServiceConfig) {
 /// Process infrastructure, such as worker management listener, is
 /// registered by the worker entrypoint rather than here.
 pub(crate) fn worker_registrations() -> Vec<WorkerRegistration> {
-    Vec::new()
+    vec![queue::worker_registration()]
 }

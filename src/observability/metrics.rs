@@ -43,6 +43,7 @@ impl Metrics {
 pub(crate) struct QueueMetrics {
     messages_enqueued: Counter<u64>,
     messages_acknowledged: Counter<u64>,
+    messages_requeued: Counter<u64>,
 }
 
 impl QueueMetrics {
@@ -59,9 +60,16 @@ impl QueueMetrics {
             .with_unit("{message}")
             .build();
 
+        let messages_requeued = meter
+            .u64_counter("queue.messages.requeued")
+            .with_description("Number of messages requeued after a visibility timeout")
+            .with_unit("{message}")
+            .build();
+
         Self {
             messages_enqueued,
             messages_acknowledged,
+            messages_requeued,
         }
     }
 
@@ -78,6 +86,12 @@ impl QueueMetrics {
     pub(crate) fn message_acknowledged(&self, queue_name: &str) {
         self.messages_acknowledged
             .add(1, &[KeyValue::new("queue.name", queue_name.to_owned())]);
+    }
+
+    pub(crate) fn messages_requeued(&self, count: u64) {
+        if count > 0 {
+            self.messages_requeued.add(count, &[]);
+        }
     }
 }
 

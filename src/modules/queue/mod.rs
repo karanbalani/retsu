@@ -2,6 +2,7 @@ mod api;
 mod application;
 mod domain;
 mod infrastructure;
+mod worker;
 
 use actix_web::web;
 use sqlx::PgPool;
@@ -9,12 +10,16 @@ use sqlx::PgPool;
 use application::{
     AcknowledgeMessageCommand, AcknowledgeMessageError, CreateQueueCommand, CreateQueueError,
     CreatedQueue, DequeueMessageCommand, DequeueMessageError, DequeuedMessage,
-    EnqueueMessageCommand, EnqueueMessageError, EnqueuedMessage, execute_acknowledge_message,
-    execute_create_queue, execute_dequeue_message, execute_enqueue_message,
+    EnqueueMessageCommand, EnqueueMessageError, EnqueuedMessage, RequeueTimedOutMessagesError,
+    execute_acknowledge_message, execute_create_queue, execute_dequeue_message,
+    execute_enqueue_message, execute_requeue_timed_out_messages,
 };
 use infrastructure::PostgresQueueRepository;
 
-use crate::observability::{DatabaseMetrics, QueueMetrics};
+use crate::{
+    observability::{DatabaseMetrics, QueueMetrics},
+    worker::WorkerRegistration,
+};
 
 #[derive(Clone)]
 pub(crate) struct QueueModule {
@@ -72,8 +77,23 @@ impl QueueModule {
 
         Ok(())
     }
+
+    async fn requeue_timed_out_messages(
+        &self,
+        batch_size: u32,
+    ) -> Result<u64, RequeueTimedOutMessagesError> {
+        let requeued = execute_requeue_timed_out_messages(&self.repository, batch_size).await?;
+
+        self.queue_metrics.messages_requeued(requeued);
+
+        Ok(requeued)
+    }
 }
 
 pub(super) fn configure_api(configuration: &mut web::ServiceConfig) {
     api::configure(configuration);
+}
+
+pub(super) fn worker_registration() -> WorkerRegistration {
+    worker::registration()
 }
