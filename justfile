@@ -1,7 +1,7 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
 sqlx-cli-version := "0.9.0"
-observability-services := "otel-collector tempo prometheus grafana"
+observability-services := "otel-collector tempo prometheus pg-exporter cadvisor grafana"
 
 # Docker Compose reads .env itself. Do not export Compose-only
 # RETSU_LOCAL_* variables into application processes.
@@ -74,9 +74,15 @@ compose-check:
 # Run all local quality gates.
 quality: justfile-check fmt-check lint test compose-check
 
+# Reapply the idempotent PostgreSQL observability bootstrap.
+db-observability-init:
+    docker compose exec -T postgres \
+        sh /docker-entrypoint-initdb.d/observability.sh
+
 # Start PostgreSQL only and wait until healthy.
 db-up:
     docker compose up -d --wait postgres
+    just db-observability-init
 
 # Stop PostgreSQL without deleting its data.
 db-stop:
@@ -86,16 +92,12 @@ db-stop:
 db-shell:
     docker compose exec postgres sh -c 'exec psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB"'
 
-# Start only the observability services.
-observability-up:
-    docker compose --profile observability up -d --wait {{ observability-services }}
-
 # Stop observability services without deleting their data.
 observability-stop:
     docker compose stop {{ observability-services }}
 
 # Start PostgreSQL and the complete observability stack.
-stack-up:
+stack-up: db-up
     docker compose --profile observability up -d --wait
 
 # Show every local service, including stopped services.

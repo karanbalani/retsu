@@ -34,3 +34,22 @@ scrape_configs:
     static_configs:
       - targets:
           - 127.0.0.1:9090
+
+  - job_name: postgres
+    static_configs:
+      - targets:
+          - pg-exporter:9630
+        labels:
+          deployment_environment: local
+
+  - job_name: containers
+    static_configs:
+      - targets:
+          - cadvisor:8080
+        labels:
+          deployment_environment: local
+    metric_relabel_configs:
+      - source_labels:
+          - container_label_retsu_observability_component
+        regex: postgres
+        action: keep

@@ -1,23 +1,41 @@
+use std::time::Instant;
+
+use crate::{database, observability::DatabaseMetrics};
+
 use super::super::{
     application::{CreateQueueOutcome, EnqueueMessageOutcome, MessageRepository, QueueRepository},
     domain::{Message, Queue},
 };
 
 use sqlx::PgPool;
+use tracing::{Span, field};
 use uuid::Uuid;
 
 #[derive(Clone)]
 pub(in crate::modules::queue) struct PostgresQueueRepository {
     pool: PgPool,
+    metrics: DatabaseMetrics,
 }
 
 impl PostgresQueueRepository {
-    pub(in crate::modules::queue) fn new(pool: PgPool) -> Self {
-        Self { pool }
+    pub(in crate::modules::queue) fn new(pool: PgPool, metrics: DatabaseMetrics) -> Self {
+        Self { pool, metrics }
     }
 }
 
 impl QueueRepository for PostgresQueueRepository {
+    #[tracing::instrument(
+        name = "db.operation",
+        skip_all,
+        fields(
+            db.system.name = "postgresql",
+            db.operation.name = "queue.create",
+            db.pool.acquire.duration = field::Empty,
+            error.type = field::Empty,
+            otel.status_code = field::Empty,
+        ),
+        err
+    )]
     async fn create_queue(&self, queue: &Queue) -> Result<CreateQueueOutcome, anyhow::Error> {
         let visibility_timeout_seconds = i32::try_from(queue.visibility_timeout_seconds())
             .expect("validated visibility timeout fits in PostgreSQL INTEGER");
@@ -25,7 +43,11 @@ impl QueueRepository for PostgresQueueRepository {
         let max_delivery_attempts = i16::try_from(queue.max_delivery_attempts())
             .expect("validated delivery attempt limit fits in PostgreSQL SMALLINT");
 
-        let inserted_id = sqlx::query_scalar::<_, Uuid>(
+        let mut connection = database::acquire(&self.pool, &self.metrics).await?;
+
+        let started = Instant::now();
+
+        let result = sqlx::query_scalar::<_, Uuid>(
             r#"
             INSERT INTO queue (
                 id, name, visibility_timeout_seconds, max_delivery_attempts
@@ -39,9 +61,18 @@ impl QueueRepository for PostgresQueueRepository {
         .bind(queue.name())
         .bind(visibility_timeout_seconds)
         .bind(max_delivery_attempts)
-        .fetch_optional(&self.pool)
-        .await?;
+        .fetch_optional(&mut *connection)
+        .await;
 
+        self.metrics
+            .operation_finished("queue.create", started.elapsed(), result.is_ok());
+
+        if let Err(error) = &result {
+            Span::current().record("error.type", database::error_type(error));
+            Span::current().record("otel.status_code", "ERROR");
+        }
+
+        let inserted_id = result?;
         match inserted_id {
             Some(_) => Ok(CreateQueueOutcome::Created),
             None => Ok(CreateQueueOutcome::AlreadyExists),
@@ -50,6 +81,18 @@ impl QueueRepository for PostgresQueueRepository {
 }
 
 impl MessageRepository for PostgresQueueRepository {
+    #[tracing::instrument(
+        name = "db.operation",
+        skip_all,
+        fields(
+            db.system.name = "postgresql",
+            db.operation.name = "queue.enqueue",
+            db.pool.acquire.duration = field::Empty,
+            error.type = field::Empty,
+            otel.status_code = field::Empty,
+        ),
+        err
+    )]
     async fn enqueue_message(
         &self,
         queue_name: &str,
@@ -57,7 +100,11 @@ impl MessageRepository for PostgresQueueRepository {
     ) -> Result<EnqueueMessageOutcome, anyhow::Error> {
         let ttl_seconds = message.ttl_seconds().map(i64::from);
 
-        let inserted_id = sqlx::query_scalar::<_, Uuid>(
+        let mut connection = database::acquire(&self.pool, &self.metrics).await?;
+
+        let started = Instant::now();
+
+        let result = sqlx::query_scalar::<_, Uuid>(
             r#"
             INSERT INTO queue_message (
                 id, queue_id, payload, priority, expires_at
@@ -81,9 +128,18 @@ impl MessageRepository for PostgresQueueRepository {
         .bind(message.priority().rank())
         .bind(ttl_seconds)
         .bind(queue_name)
-        .fetch_optional(&self.pool)
-        .await?;
+        .fetch_optional(&mut *connection)
+        .await;
 
+        self.metrics
+            .operation_finished("queue.enqueue", started.elapsed(), result.is_ok());
+
+        if let Err(error) = &result {
+            Span::current().record("error.type", database::error_type(error));
+            Span::current().record("otel.status_code", "ERROR");
+        }
+
+        let inserted_id = result?;
         match inserted_id {
             Some(_) => Ok(EnqueueMessageOutcome::Enqueued),
             None => Ok(EnqueueMessageOutcome::QueueNotFound),

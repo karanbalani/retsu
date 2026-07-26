@@ -63,7 +63,7 @@ just db-stop
 Start only Prometheus, Tempo, the OpenTelemetry Collector, and Grafana:
 
 ```bash
-just observability-up
+just stack-up
 ```
 
 Stop those services while preserving their data:

@@ -12,19 +12,23 @@ use application::{
 };
 use infrastructure::PostgresQueueRepository;
 
-use crate::observability::QueueMetrics;
+use crate::observability::{DatabaseMetrics, QueueMetrics};
 
 #[derive(Clone)]
 pub(crate) struct QueueModule {
     repository: PostgresQueueRepository,
-    metrics: QueueMetrics,
+    queue_metrics: QueueMetrics,
 }
 
 impl QueueModule {
-    pub(crate) fn new(database_pool: PgPool, metrics: QueueMetrics) -> Self {
+    pub(crate) fn new(
+        database_pool: PgPool,
+        queue_metrics: QueueMetrics,
+        database_metrics: DatabaseMetrics,
+    ) -> Self {
         Self {
-            repository: PostgresQueueRepository::new(database_pool),
-            metrics,
+            repository: PostgresQueueRepository::new(database_pool, database_metrics),
+            queue_metrics,
         }
     }
 
@@ -41,7 +45,7 @@ impl QueueModule {
     ) -> Result<EnqueuedMessage, EnqueueMessageError> {
         let message = execute_enqueue_message(&self.repository, command).await?;
 
-        self.metrics
+        self.queue_metrics
             .message_enqueued(message.queue_name(), message.priority());
 
         Ok(message)
