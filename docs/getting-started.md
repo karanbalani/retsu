@@ -2,8 +2,8 @@
 
 Use this guide to run Retsu on your computer.
 
-Retsu is still being built. You can create queues, but adding and processing
-messages is not available yet.
+Retsu is still being built. You can create queues and add messages, but reading
+and processing messages is not available yet.
 
 ## What you need
 
@@ -54,7 +54,7 @@ A ready API returns:
 {"status":"ready"}
 ```
 
-You can now [create a queue](queues.md).
+You can now [create a queue and add a message](queues.md).
 
 Start the worker in a separate terminal:
 
