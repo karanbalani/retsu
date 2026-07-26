@@ -378,4 +378,59 @@ impl MessageRepository for PostgresQueueRepository {
             (true, true, false) => Ok(AcknowledgeMessageOutcome::ReceiptHandleInvalid),
         }
     }
+
+    #[tracing::instrument(
+        name = "db.operation",
+        skip_all,
+        fields(
+            db.system.name = "postgresql",
+            db.operation.name = "queue.requeue_timed_out_messages",
+            db.pool.acquire.duration = field::Empty,
+            error.type = field::Empty,
+            otel.status_code = field::Empty,
+        ),
+        err
+    )]
+    async fn requeue_timed_out_messages(&self, batch_size: u32) -> Result<u64, anyhow::Error> {
+        let mut connection = database::acquire(&self.pool, &self.metrics).await?;
+
+        let started = Instant::now();
+
+        let result = sqlx::query(
+            r#"
+            WITH timed_out AS MATERIALIZED (
+                SELECT message.id
+                FROM queue_message AS message
+                WHERE message.state = 'IN_FLIGHT'
+                    AND message.visibility_deadline <= CURRENT_TIMESTAMP
+                ORDER BY message.visibility_deadline ASC
+                FOR UPDATE SKIP LOCKED
+                LIMIT $1
+            )
+            UPDATE queue_message AS message
+            SET
+                state = 'READY',
+                receipt_handle = NULL,
+                visibility_deadline = NULL
+            FROM timed_out
+            WHERE message.id = timed_out.id
+            "#,
+        )
+        .bind(i64::from(batch_size))
+        .execute(&mut *connection)
+        .await;
+
+        self.metrics.operation_finished(
+            "queue.requeue_timed_out_messages",
+            started.elapsed(),
+            result.is_ok(),
+        );
+
+        if let Err(error) = &result {
+            Span::current().record("error.type", database::error_type(error));
+            Span::current().record("otel.status_code", "ERROR");
+        }
+
+        Ok(result?.rows_affected())
+    }
 }

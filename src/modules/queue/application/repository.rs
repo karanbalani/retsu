@@ -54,4 +54,6 @@ pub(in crate::modules::queue) trait MessageRepository {
         message_id: Uuid,
         receipt_handle: Uuid,
     ) -> Result<AcknowledgeMessageOutcome, anyhow::Error>;
+
+    async fn requeue_timed_out_messages(&self, batch_size: u32) -> Result<u64, anyhow::Error>;
 }
