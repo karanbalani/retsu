@@ -7,8 +7,9 @@ use actix_web::web;
 use sqlx::PgPool;
 
 use application::{
-    CreateQueueCommand, CreateQueueError, CreatedQueue, DequeueMessageCommand, DequeueMessageError,
-    DequeuedMessage, EnqueueMessageCommand, EnqueueMessageError, EnqueuedMessage,
+    AcknowledgeMessageCommand, AcknowledgeMessageError, CreateQueueCommand, CreateQueueError,
+    CreatedQueue, DequeueMessageCommand, DequeueMessageError, DequeuedMessage,
+    EnqueueMessageCommand, EnqueueMessageError, EnqueuedMessage, execute_acknowledge_message,
     execute_create_queue, execute_dequeue_message, execute_enqueue_message,
 };
 use infrastructure::PostgresQueueRepository;
@@ -57,6 +58,19 @@ impl QueueModule {
         command: DequeueMessageCommand,
     ) -> Result<Option<DequeuedMessage>, DequeueMessageError> {
         execute_dequeue_message(&self.repository, command).await
+    }
+
+    async fn acknowledge_message(
+        &self,
+        command: AcknowledgeMessageCommand,
+    ) -> Result<(), AcknowledgeMessageError> {
+        let queue_name = command.queue_name().to_owned();
+
+        execute_acknowledge_message(&self.repository, command).await?;
+
+        self.queue_metrics.message_acknowledged(&queue_name);
+
+        Ok(())
     }
 }
 

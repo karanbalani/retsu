@@ -4,8 +4,8 @@ use crate::{database, observability::DatabaseMetrics};
 
 use super::super::{
     application::{
-        CreateQueueOutcome, DequeueMessageOutcome, EnqueueMessageOutcome, MessageRepository,
-        QueueRepository,
+        AcknowledgeMessageOutcome, CreateQueueOutcome, DequeueMessageOutcome,
+        EnqueueMessageOutcome, MessageRepository, QueueRepository,
     },
     domain::{Message, MessagePriority, Queue},
 };
@@ -34,6 +34,13 @@ struct DequeueMessageRow {
     payload: Option<Vec<u8>>,
     priority: Option<i16>,
     delivery_attempts: Option<i16>,
+}
+
+#[derive(sqlx::FromRow)]
+struct AcknowledgeMessageRow {
+    queue_exists: bool,
+    message_exists: bool,
+    acknowledged: bool,
 }
 
 impl QueueRepository for PostgresQueueRepository {
@@ -281,6 +288,94 @@ impl MessageRepository for PostgresQueueRepository {
             _ => Err(anyhow!(
                 "dequeue query returned an incomplete leased message"
             )),
+        }
+    }
+
+    #[tracing::instrument(
+        name = "db.operation",
+        skip_all,
+        fields(
+            db.system.name = "postgresql",
+            db.operation.name = "queue.acknowledge",
+            db.pool.acquire.duration = field::Empty,
+            error.type = field::Empty,
+            otel.status_code = field::Empty,
+        ),
+        err
+    )]
+    async fn acknowledge_message(
+        &self,
+        queue_name: &str,
+        message_id: Uuid,
+        receipt_handle: Uuid,
+    ) -> Result<AcknowledgeMessageOutcome, anyhow::Error> {
+        let mut connection = database::acquire(&self.pool, &self.metrics).await?;
+
+        let started = Instant::now();
+
+        let result = sqlx::query_as::<_, AcknowledgeMessageRow>(
+            r#"
+            WITH target_queue AS MATERIALIZED (
+                SELECT id
+                FROM queue
+                WHERE name = $1
+            ),
+            target_message AS MATERIALIZED (
+                SELECT message.id
+                FROM queue_message AS message
+                JOIN target_queue
+                    ON target_queue.id = message.queue_id
+                WHERE message.id = $2
+            ),
+            acknowledged AS (
+                DELETE FROM queue_message AS message
+                USING target_queue
+                WHERE message.queue_id = target_queue.id
+                    AND message.id = $2
+                    AND message.state = 'IN_FLIGHT'
+                    AND message.receipt_handle = $3
+                    AND message.visibility_deadline > CURRENT_TIMESTAMP
+                RETURNING message.id
+            )
+            SELECT
+                EXISTS (
+                    SELECT 1
+                    FROM target_queue
+                ) AS queue_exists,
+                EXISTS (
+                    SELECT 1
+                    FROM target_message
+                ) AS message_exists,
+                EXISTS (
+                    SELECT 1
+                    FROM acknowledged
+                ) AS acknowledged
+            "#,
+        )
+        .bind(queue_name)
+        .bind(message_id)
+        .bind(receipt_handle)
+        .fetch_one(&mut *connection)
+        .await;
+
+        self.metrics
+            .operation_finished("queue.acknowledge", started.elapsed(), result.is_ok());
+
+        if let Err(error) = &result {
+            Span::current().record("error.type", database::error_type(error));
+            Span::current().record("otel.status_code", "ERROR");
+        }
+
+        let row = result?;
+
+        match (row.queue_exists, row.message_exists, row.acknowledged) {
+            (_, _, true) => Ok(AcknowledgeMessageOutcome::Acknowledged),
+
+            (false, _, false) => Ok(AcknowledgeMessageOutcome::QueueNotFound),
+
+            (true, false, false) => Ok(AcknowledgeMessageOutcome::MessageNotFound),
+
+            (true, true, false) => Ok(AcknowledgeMessageOutcome::ReceiptHandleInvalid),
         }
     }
 }

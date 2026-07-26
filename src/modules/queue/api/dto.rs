@@ -2,8 +2,8 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::super::application::{
-    CreateQueueCommand, CreatedQueue, DequeueMessageCommand, DequeuedMessage,
-    EnqueueMessageCommand, EnqueuedMessage,
+    AcknowledgeMessageCommand, CreateQueueCommand, CreatedQueue, DequeueMessageCommand,
+    DequeuedMessage, EnqueueMessageCommand, EnqueuedMessage,
 };
 
 #[derive(Debug, Deserialize)]
@@ -101,5 +101,23 @@ impl From<DequeuedMessage> for DequeueMessageResponse {
             receipt_handle: message.receipt_handle(),
             delivery_attempts: message.delivery_attempts(),
         }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub(super) struct MessagePath {
+    queue_name: String,
+    message_id: Uuid,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct AcknowledgeMessageRequest {
+    receipt_handle: Uuid,
+}
+
+impl AcknowledgeMessageRequest {
+    pub(super) fn into_command(self, path: MessagePath) -> AcknowledgeMessageCommand {
+        AcknowledgeMessageCommand::new(path.queue_name, path.message_id, self.receipt_handle)
     }
 }

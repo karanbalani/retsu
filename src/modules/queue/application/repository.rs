@@ -24,6 +24,13 @@ pub(in crate::modules::queue) enum DequeueMessageOutcome {
     QueueNotFound,
 }
 
+pub(in crate::modules::queue) enum AcknowledgeMessageOutcome {
+    Acknowledged,
+    QueueNotFound,
+    MessageNotFound,
+    ReceiptHandleInvalid,
+}
+
 pub(in crate::modules::queue) trait QueueRepository {
     async fn create_queue(&self, queue: &Queue) -> Result<CreateQueueOutcome, anyhow::Error>;
 }
@@ -40,4 +47,11 @@ pub(in crate::modules::queue) trait MessageRepository {
         queue_name: &str,
         receipt_handle: Uuid,
     ) -> Result<DequeueMessageOutcome, anyhow::Error>;
+
+    async fn acknowledge_message(
+        &self,
+        queue_name: &str,
+        message_id: Uuid,
+        receipt_handle: Uuid,
+    ) -> Result<AcknowledgeMessageOutcome, anyhow::Error>;
 }
