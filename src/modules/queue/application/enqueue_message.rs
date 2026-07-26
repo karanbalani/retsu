@@ -115,7 +115,9 @@ mod tests {
         EnqueueMessageCommand, EnqueueMessageError, EnqueueMessageOutcome, Message,
         MessageRepository, MessageValidationError, execute,
     };
-    use crate::modules::queue::application::repository::DequeueMessageOutcome;
+    use crate::modules::queue::application::repository::{
+        AcknowledgeMessageOutcome, DequeueMessageOutcome,
+    };
 
     struct FakeMessageRepository {
         enqueue_outcome: EnqueueMessageOutcome,
@@ -161,6 +163,15 @@ mod tests {
             _receipt_handle: Uuid,
         ) -> Result<DequeueMessageOutcome, anyhow::Error> {
             unreachable!("enqueue tests should not dequeue messages")
+        }
+
+        async fn acknowledge_message(
+            &self,
+            _queue_name: &str,
+            _message_id: Uuid,
+            _receipt_handle: Uuid,
+        ) -> Result<AcknowledgeMessageOutcome, anyhow::Error> {
+            unreachable!("enqueue tests should not acknowledge messages")
         }
     }
 

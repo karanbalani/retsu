@@ -42,6 +42,7 @@ impl Metrics {
 #[derive(Clone)]
 pub(crate) struct QueueMetrics {
     messages_enqueued: Counter<u64>,
+    messages_acknowledged: Counter<u64>,
 }
 
 impl QueueMetrics {
@@ -52,7 +53,16 @@ impl QueueMetrics {
             .with_unit("{message}")
             .build();
 
-        Self { messages_enqueued }
+        let messages_acknowledged = meter
+            .u64_counter("queue.messages.acknowledged")
+            .with_description("Number of messages successfully acknowledged")
+            .with_unit("{message}")
+            .build();
+
+        Self {
+            messages_enqueued,
+            messages_acknowledged,
+        }
     }
 
     pub(crate) fn message_enqueued(&self, queue_name: &str, priority: &str) {
@@ -63,6 +73,11 @@ impl QueueMetrics {
                 KeyValue::new("message.priority", priority.to_owned()),
             ],
         );
+    }
+
+    pub(crate) fn message_acknowledged(&self, queue_name: &str) {
+        self.messages_acknowledged
+            .add(1, &[KeyValue::new("queue.name", queue_name.to_owned())]);
     }
 }
 

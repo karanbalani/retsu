@@ -4,12 +4,14 @@ use crate::{api::ApiError, app::ApplicationContext};
 
 use super::{
     super::{
-        application::{CreateQueueError, DequeueMessageError, EnqueueMessageError},
+        application::{
+            AcknowledgeMessageError, CreateQueueError, DequeueMessageError, EnqueueMessageError,
+        },
         domain::{MessageValidationError, QueueSettingsError},
     },
     dto::{
-        CreateQueueRequest, CreateQueueResponse, DequeueMessageResponse, EnqueueMessageRequest,
-        EnqueueMessageResponse, QueuePath,
+        AcknowledgeMessageRequest, CreateQueueRequest, CreateQueueResponse, DequeueMessageResponse,
+        EnqueueMessageRequest, EnqueueMessageResponse, MessagePath, QueuePath,
     },
 };
 
@@ -100,6 +102,42 @@ fn map_dequeue_message_error(error: DequeueMessageError) -> ApiError {
             ApiError::resource_not_found("queue_not_found", "the requested queue does not exist")
         }
         DequeueMessageError::Persistence(error) => ApiError::internal(error),
+    }
+}
+
+pub(super) async fn acknowledge_message(
+    context: web::Data<ApplicationContext>,
+    path: web::Path<MessagePath>,
+    request: web::Json<AcknowledgeMessageRequest>,
+) -> Result<HttpResponse, ApiError> {
+    let command = request.into_inner().into_command(path.into_inner());
+
+    context
+        .queue_module()
+        .acknowledge_message(command)
+        .await
+        .map_err(map_acknowledge_message_error)?;
+
+    Ok(HttpResponse::NoContent().finish())
+}
+
+fn map_acknowledge_message_error(error: AcknowledgeMessageError) -> ApiError {
+    match error {
+        AcknowledgeMessageError::QueueNotFound => {
+            ApiError::resource_not_found("queue_not_found", "the requested queue does not exist")
+        }
+
+        AcknowledgeMessageError::MessageNotFound => ApiError::resource_not_found(
+            "message_not_found",
+            "the requested message does not exist in this queue",
+        ),
+
+        AcknowledgeMessageError::ReceiptHandleInvalid => ApiError::conflict(
+            "invalid_receipt_handle",
+            "the receipt handle is not valid for the message's current unexpired delivery attempt",
+        ),
+
+        AcknowledgeMessageError::Persistence(error) => ApiError::internal(error),
     }
 }
 

@@ -118,7 +118,10 @@ mod tests {
         DequeueMessageCommand, DequeueMessageError, DequeueMessageOutcome, MessagePriority,
         MessageRepository, execute,
     };
-    use crate::modules::queue::{application::repository::EnqueueMessageOutcome, domain::Message};
+    use crate::modules::queue::{
+        application::repository::{AcknowledgeMessageOutcome, EnqueueMessageOutcome},
+        domain::Message,
+    };
 
     enum FakeDequeueOutcome {
         Dequeued {
@@ -180,6 +183,15 @@ mod tests {
                 FakeDequeueOutcome::Empty => DequeueMessageOutcome::Empty,
                 FakeDequeueOutcome::QueueNotFound => DequeueMessageOutcome::QueueNotFound,
             })
+        }
+
+        async fn acknowledge_message(
+            &self,
+            _queue_name: &str,
+            _message_id: Uuid,
+            _receipt_handle: Uuid,
+        ) -> Result<AcknowledgeMessageOutcome, anyhow::Error> {
+            unreachable!("dequeue tests should not acknowledge messages")
         }
     }
 

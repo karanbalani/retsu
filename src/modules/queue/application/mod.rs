@@ -1,3 +1,4 @@
+mod acknowledge_message;
 mod create_queue;
 mod dequeue_message;
 mod enqueue_message;
@@ -8,8 +9,8 @@ pub(in crate::modules::queue) use create_queue::{
 };
 
 pub(in crate::modules::queue) use repository::{
-    CreateQueueOutcome, DequeueMessageOutcome, EnqueueMessageOutcome, MessageRepository,
-    QueueRepository,
+    AcknowledgeMessageOutcome, CreateQueueOutcome, DequeueMessageOutcome, EnqueueMessageOutcome,
+    MessageRepository, QueueRepository,
 };
 
 pub(in crate::modules::queue) use dequeue_message::{
@@ -18,4 +19,8 @@ pub(in crate::modules::queue) use dequeue_message::{
 
 pub(in crate::modules::queue) use enqueue_message::{
     EnqueueMessageCommand, EnqueueMessageError, EnqueuedMessage, execute as execute_enqueue_message,
+};
+
+pub(in crate::modules::queue) use acknowledge_message::{
+    AcknowledgeMessageCommand, AcknowledgeMessageError, execute as execute_acknowledge_message,
 };
