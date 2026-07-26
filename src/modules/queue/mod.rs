@@ -82,7 +82,11 @@ impl QueueModule {
         &self,
         batch_size: u32,
     ) -> Result<u64, RequeueTimedOutMessagesError> {
-        execute_requeue_timed_out_messages(&self.repository, batch_size).await
+        let requeued = execute_requeue_timed_out_messages(&self.repository, batch_size).await?;
+
+        self.queue_metrics.messages_requeued(requeued);
+
+        Ok(requeued)
     }
 }
 

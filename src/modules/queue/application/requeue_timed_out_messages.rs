@@ -1,11 +1,16 @@
 use thiserror::Error;
+use tracing::field;
 
 use super::repository::MessageRepository;
 
 #[tracing::instrument(
     name = "queue.visibility_timeout.requeue",
+    parent = None,
     skip_all,
-    fields(batch.size = batch_size),
+    fields(
+        batch.size = batch_size,
+        messages.requeued = field::Empty,
+    ),
     err
 )]
 pub(in crate::modules::queue) async fn execute<R>(
@@ -15,10 +20,14 @@ pub(in crate::modules::queue) async fn execute<R>(
 where
     R: MessageRepository,
 {
-    repository
+    let requeued = repository
         .requeue_timed_out_messages(batch_size)
         .await
-        .map_err(RequeueTimedOutMessagesError::Persistence)
+        .map_err(RequeueTimedOutMessagesError::Persistence)?;
+
+    tracing::Span::current().record("messages.requeued", requeued);
+
+    Ok(requeued)
 }
 
 #[derive(Debug, Error)]
