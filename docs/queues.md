@@ -1,7 +1,7 @@
 # Queues and messages
 
-Retsu can create queues, add messages, and return the next waiting message.
-Completing or retrying messages is not available yet.
+Retsu can create queues, add messages, return the next waiting message, and
+mark a returned message as complete.
 
 ## Create a queue
 
@@ -28,8 +28,9 @@ The `id` will be different for every queue.
 
 ### Queue settings
 
-The visibility timeout is recorded when a message is returned. The delivery
-attempt limit is saved for retry support, which is not available yet.
+The visibility timeout controls how long a returned message can be completed.
+The worker makes timed-out messages available again. The delivery attempt limit
+is saved but is not enforced yet.
 
 | Field | What it controls | Accepted value | Default |
 | --- | --- | --- | --- |
@@ -122,8 +123,8 @@ Retsu returns the highest-priority waiting message. Messages with the same
 priority are returned in the order they were added. Expired messages are
 skipped.
 
-The returned message is no longer waiting for another request. Completing or
-retrying it is not available yet.
+The returned message is not available to another request during the queue's
+visibility timeout.
 
 ### Response fields
 
@@ -138,3 +139,39 @@ retrying it is not available yet.
 If no message is waiting, Retsu returns status `204` with no response body.
 
 If the queue does not exist, Retsu returns `404` and `queue_not_found`.
+
+## Complete a message
+
+Use the `id` and `receipt_handle` from the latest response:
+
+```bash
+curl --request POST \
+  http://127.0.0.1:2424/v1/queues/emails/messages/019c9a65-7d3a-7c6b-8a9d-123456789abc/acknowledge \
+  --header 'content-type: application/json' \
+  --data '{
+    "receipt_handle": "d03de2b6-22d6-46f5-a662-3af5d46f7054"
+  }'
+```
+
+A successful request returns status `204` with no response body. The message is
+removed and will not be returned again.
+
+### Completion errors
+
+- `404` and `queue_not_found`: the queue does not exist.
+- `404` and `message_not_found`: the message does not exist in this queue.
+- `409` and `invalid_receipt_handle`: the receipt handle is not from the
+  message's current delivery, or its visibility timeout has passed.
+
+## Try a timed-out message again
+
+Run the worker alongside the API:
+
+```bash
+just worker
+```
+
+If a returned message is not completed before its visibility timeout, the
+worker makes it available again. A later request can return the message with a
+new `receipt_handle` and a higher `delivery_attempts` value. The old receipt
+handle will no longer work.
