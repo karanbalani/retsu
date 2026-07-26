@@ -1,7 +1,7 @@
 # Queues and messages
 
-Retsu can create queues and add messages to them. Reading and processing
-messages is not available yet.
+Retsu can create queues, add messages, and return the next waiting message.
+Completing or retrying messages is not available yet.
 
 ## Create a queue
 
@@ -28,8 +28,8 @@ The `id` will be different for every queue.
 
 ### Queue settings
 
-The message-related settings are saved now and will be used when message
-processing is added.
+The visibility timeout is recorded when a message is returned. The delivery
+attempt limit is saved for retry support, which is not available yet.
 
 | Field | What it controls | Accepted value | Default |
 | --- | --- | --- | --- |
@@ -97,3 +97,44 @@ The `id` will be different for every message.
 - `400` and `invalid_priority`: the priority is not `HIGH`, `MEDIUM`, or `LOW`.
 - `400` and `invalid_ttl`: `ttl_seconds` is `0`.
 - `404` and `queue_not_found`: the queue does not exist.
+
+## Get the next message
+
+Use the queue name in the address. The request does not need a body:
+
+```bash
+curl --request POST http://127.0.0.1:2424/v1/queues/emails/messages/dequeue
+```
+
+A successful request returns status `200` and the next message:
+
+```json
+{
+  "id": "019c9a65-7d3a-7c6b-8a9d-123456789abc",
+  "payload": "send welcome email",
+  "priority": "HIGH",
+  "receipt_handle": "d03de2b6-22d6-46f5-a662-3af5d46f7054",
+  "delivery_attempts": 1
+}
+```
+
+Retsu returns the highest-priority waiting message. Messages with the same
+priority are returned in the order they were added. Expired messages are
+skipped.
+
+The returned message is no longer waiting for another request. Completing or
+retrying it is not available yet.
+
+### Response fields
+
+| Field | What it means |
+| --- | --- |
+| `id` | The message ID |
+| `payload` | The saved message content |
+| `priority` | `HIGH`, `MEDIUM`, or `LOW` |
+| `receipt_handle` | Identifies this delivery |
+| `delivery_attempts` | Times the message has been returned |
+
+If no message is waiting, Retsu returns status `204` with no response body.
+
+If the queue does not exist, Retsu returns `404` and `queue_not_found`.

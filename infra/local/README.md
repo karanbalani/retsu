@@ -1,7 +1,7 @@
 # Local infrastructure
 
 The Retsu application runs on the host through Cargo. PostgreSQL and the optional
-observability services run through Docker Compose.
+monitoring services run through Docker Compose.
 
 ## Prerequisites
 
@@ -58,38 +58,42 @@ Stop PostgreSQL while preserving its data:
 just db-stop
 ```
 
-## Observability
+To log database queries that take 250 milliseconds or longer, set this in
+`.env`:
 
-Start only Prometheus, Tempo, the OpenTelemetry Collector, and Grafana:
+```dotenv
+RETSU_LOCAL_POSTGRES_SLOW_QUERY_MS=250
+```
+
+Use `-1` to turn this logging off. Restart PostgreSQL after changing the value.
+
+## Monitoring
+
+Start PostgreSQL and all monitoring services:
 
 ```bash
 just stack-up
 ```
 
-Stop those services while preserving their data:
+`pg-exporter` provides PostgreSQL measurements, and `cadvisor` provides
+container measurements. Prometheus collects both automatically.
+
+Stop the monitoring services while preserving their data:
 
 ```bash
 just observability-stop
 ```
 
-Run the API with trace export enabled:
+Run the API and send its activity to the monitoring tools:
 
 ```bash
 just api-observed
 ```
 
-Run workers with trace export enabled:
+Run workers and send their activity to the monitoring tools:
 
 ```bash
 just worker-observed
-```
-
-## Complete stack
-
-Start PostgreSQL and all observability services:
-
-```bash
-just stack-up
 ```
 
 Inspect running and stopped services:
@@ -105,6 +109,8 @@ just logs postgres
 just logs otel-collector
 just logs tempo
 just logs prometheus
+just logs pg-exporter
+just logs cadvisor
 just logs grafana
 ```
 
@@ -155,6 +161,7 @@ just migrate
 
 - API: http://127.0.0.1:2424
 - API metrics: http://127.0.0.1:2424/metrics
+- PostgreSQL: 127.0.0.1:24240
 - Collector health: http://127.0.0.1:24243
 - Tempo: http://127.0.0.1:24244
 - Prometheus: http://127.0.0.1:24245
@@ -162,5 +169,7 @@ just migrate
 - Worker liveness: http://127.0.0.1:24247/health/live
 - Worker readiness: http://127.0.0.1:24247/health/ready
 - Worker metrics: http://127.0.0.1:24247/metrics
+- PostgreSQL measurements: http://127.0.0.1:24248/metrics
+- Container measurements: http://127.0.0.1:24249/metrics
 
 Grafana defaults to `admin` / `retsu_local` unless overridden through `.env`.
