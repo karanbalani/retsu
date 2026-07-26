@@ -3,14 +3,18 @@
 //! Infrastructure hosts depend only on this module. Individual
 //! business modules remain private and expose registrations here.
 
+mod queue;
+
 use actix_web::web;
 
 use crate::worker::WorkerRegistration;
 
+pub(crate) use queue::QueueModule;
+
 /// Registers API routes contributed by business modules.
-///
-/// This stays empty until the first vertical module is added.
-pub(crate) fn configure_api(_configuration: &mut web::ServiceConfig) {}
+pub(crate) fn configure_api(configuration: &mut web::ServiceConfig) {
+    queue::configure_api(configuration);
+}
 
 /// Returns long-running workers contributed by business modules.
 ///

@@ -56,6 +56,10 @@ impl ApiError {
         }
     }
 
+    pub(crate) fn conflict(code: &'static str, detail: impl Into<Cow<'static, str>>) -> Self {
+        Self::new(StatusCode::CONFLICT, code, detail)
+    }
+
     fn new(status: StatusCode, code: &'static str, detail: impl Into<Cow<'static, str>>) -> Self {
         Self {
             status,
