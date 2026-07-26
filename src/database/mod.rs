@@ -1,12 +1,13 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use sqlx::{
-    PgPool,
+    Error as SqlxError, PgPool, Postgres,
     migrate::{MigrateError, Migrator},
+    pool::PoolConnection,
     postgres::PgPoolOptions,
 };
 
-use crate::configuration::DatabaseConfig;
+use crate::{configuration::DatabaseConfig, observability::DatabaseMetrics};
 
 static MIGRATOR: Migrator = sqlx::migrate!();
 
@@ -37,4 +38,37 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), MigrateError> {
 pub(crate) async fn check_health(pool: &PgPool) -> Result<(), sqlx::Error> {
     sqlx::query("SELECT 1").execute(pool).await?;
     Ok(())
+}
+
+pub(crate) async fn acquire(
+    pool: &PgPool,
+    metrics: &DatabaseMetrics,
+) -> Result<PoolConnection<Postgres>, SqlxError> {
+    let started = Instant::now();
+    let result = pool.acquire().await;
+    let elapsed = started.elapsed();
+
+    metrics.acquisition_finished(elapsed, result.is_ok());
+
+    tracing::Span::current().record("db.pool.acquire.duration", elapsed.as_secs_f64());
+
+    if let Err(error) = &result {
+        tracing::Span::current().record("error.type", error_type(error));
+        tracing::Span::current().record("otel.status_code", "ERROR");
+    }
+
+    result
+}
+
+pub(crate) fn error_type(error: &SqlxError) -> &'static str {
+    match error {
+        SqlxError::Database(_) => "database",
+        SqlxError::Io(_) => "io",
+        SqlxError::Tls(_) => "tls",
+        SqlxError::Protocol(_) => "protocol",
+        SqlxError::PoolTimedOut => "pool_timeout",
+        SqlxError::PoolClosed => "pool_closed",
+        SqlxError::WorkerCrashed => "worker_crashed",
+        _ => "other",
+    }
 }
