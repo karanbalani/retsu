@@ -54,7 +54,7 @@ A ready API returns:
 {"status":"ready"}
 ```
 
-You can now create a queue.
+You can now [create a queue](queues.md).
 
 Start the worker in a separate terminal:
 
