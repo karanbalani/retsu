@@ -2,7 +2,8 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::super::application::{
-    CreateQueueCommand, CreatedQueue, EnqueueMessageCommand, EnqueuedMessage,
+    CreateQueueCommand, CreatedQueue, DequeueMessageCommand, DequeuedMessage,
+    EnqueueMessageCommand, EnqueuedMessage,
 };
 
 #[derive(Debug, Deserialize)]
@@ -51,6 +52,10 @@ impl QueuePath {
     pub(super) fn into_queue_name(self) -> String {
         self.queue_name
     }
+
+    pub(super) fn into_dequeue_command(self) -> DequeueMessageCommand {
+        DequeueMessageCommand::new(self.queue_name)
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -75,5 +80,26 @@ pub(super) struct EnqueueMessageResponse {
 impl From<EnqueuedMessage> for EnqueueMessageResponse {
     fn from(message: EnqueuedMessage) -> Self {
         Self { id: message.id() }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub(super) struct DequeueMessageResponse {
+    id: Uuid,
+    payload: String,
+    priority: &'static str,
+    receipt_handle: Uuid,
+    delivery_attempts: u16,
+}
+
+impl From<DequeuedMessage> for DequeueMessageResponse {
+    fn from(message: DequeuedMessage) -> Self {
+        Self {
+            id: message.id(),
+            payload: message.payload().to_owned(),
+            priority: message.priority(),
+            receipt_handle: message.receipt_handle(),
+            delivery_attempts: message.delivery_attempts(),
+        }
     }
 }
