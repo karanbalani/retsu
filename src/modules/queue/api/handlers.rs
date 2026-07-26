@@ -148,8 +148,9 @@ mod tests {
 
     use super::{
         super::super::domain::{MessageValidationError, QueueNameError},
-        CreateQueueError, DequeueMessageError, EnqueueMessageError, QueueSettingsError,
-        map_create_queue_error, map_dequeue_message_error, map_enqueue_message_error,
+        AcknowledgeMessageError, CreateQueueError, DequeueMessageError, EnqueueMessageError,
+        QueueSettingsError, map_acknowledge_message_error, map_create_queue_error,
+        map_dequeue_message_error, map_enqueue_message_error,
     };
 
     #[actix_web::test]
@@ -204,6 +205,21 @@ mod tests {
                 map_dequeue_message_error(DequeueMessageError::QueueNotFound),
                 StatusCode::NOT_FOUND,
                 "queue_not_found",
+            ),
+            (
+                map_acknowledge_message_error(AcknowledgeMessageError::QueueNotFound),
+                StatusCode::NOT_FOUND,
+                "queue_not_found",
+            ),
+            (
+                map_acknowledge_message_error(AcknowledgeMessageError::MessageNotFound),
+                StatusCode::NOT_FOUND,
+                "message_not_found",
+            ),
+            (
+                map_acknowledge_message_error(AcknowledgeMessageError::ReceiptHandleInvalid),
+                StatusCode::CONFLICT,
+                "invalid_receipt_handle",
             ),
         ];
 
