@@ -1,6 +1,6 @@
 use super::super::{
-    application::{CreateQueueOutcome, QueueRepository},
-    domain::Queue,
+    application::{CreateQueueOutcome, EnqueueMessageOutcome, MessageRepository, QueueRepository},
+    domain::{Message, Queue},
 };
 
 use sqlx::PgPool;
@@ -45,6 +45,48 @@ impl QueueRepository for PostgresQueueRepository {
         match inserted_id {
             Some(_) => Ok(CreateQueueOutcome::Created),
             None => Ok(CreateQueueOutcome::AlreadyExists),
+        }
+    }
+}
+
+impl MessageRepository for PostgresQueueRepository {
+    async fn enqueue_message(
+        &self,
+        queue_name: &str,
+        message: &Message,
+    ) -> Result<EnqueueMessageOutcome, anyhow::Error> {
+        let ttl_seconds = message.ttl_seconds().map(i64::from);
+
+        let inserted_id = sqlx::query_scalar::<_, Uuid>(
+            r#"
+            INSERT INTO queue_message (
+                id, queue_id, payload, priority, expires_at
+            )
+            SELECT
+                $1,
+                queue.id,
+                $2,
+                $3,
+                CASE
+                    WHEN $4::BIGINT IS NULL THEN NULL
+                    ELSE CURRENT_TIMESTAMP + ($4::BIGINT * INTERVAL '1 second')
+                END
+            FROM queue
+            WHERE queue.name = $5
+            RETURNING id
+            "#,
+        )
+        .bind(message.id())
+        .bind(message.payload().as_bytes())
+        .bind(message.priority().rank())
+        .bind(ttl_seconds)
+        .bind(queue_name)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        match inserted_id {
+            Some(_) => Ok(EnqueueMessageOutcome::Enqueued),
+            None => Ok(EnqueueMessageOutcome::QueueNotFound),
         }
     }
 }

@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use opentelemetry::{
     KeyValue,
-    metrics::{Histogram, Meter, MeterProvider, UpDownCounter},
+    metrics::{Counter, Histogram, Meter, MeterProvider, UpDownCounter},
 };
 use opentelemetry_sdk::{Resource, error::OTelSdkError, metrics::SdkMeterProvider};
 use prometheus::{Encoder, Registry, TextEncoder};
@@ -11,11 +11,16 @@ use prometheus::{Encoder, Registry, TextEncoder};
 pub(crate) struct Metrics {
     registry: Registry,
     http: HttpMetrics,
+    queue: QueueMetrics,
 }
 
 impl Metrics {
     pub(crate) fn http(&self) -> &HttpMetrics {
         &self.http
+    }
+
+    pub(crate) fn queue(&self) -> &QueueMetrics {
+        &self.queue
     }
 
     pub(crate) fn encode_prometheus(&self) -> Result<Vec<u8>, prometheus::Error> {
@@ -25,6 +30,33 @@ impl Metrics {
         TextEncoder::new().encode(&metric_families, &mut body)?;
 
         Ok(body)
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct QueueMetrics {
+    messages_enqueued: Counter<u64>,
+}
+
+impl QueueMetrics {
+    fn new(meter: &Meter) -> Self {
+        let messages_enqueued = meter
+            .u64_counter("queue.messages.enqueued")
+            .with_description("Number of messages durably enqueued")
+            .with_unit("{message}")
+            .build();
+
+        Self { messages_enqueued }
+    }
+
+    pub(crate) fn message_enqueued(&self, queue_name: &str, priority: &str) {
+        self.messages_enqueued.add(
+            1,
+            &[
+                KeyValue::new("queue.name", queue_name.to_owned()),
+                KeyValue::new("message.priority", priority.to_owned()),
+            ],
+        );
     }
 }
 
@@ -131,6 +163,7 @@ pub(super) fn initialize(resource: Resource) -> Result<(SdkMeterProvider, Metric
     let metrics = Metrics {
         registry,
         http: HttpMetrics::new(&meter),
+        queue: QueueMetrics::new(&meter),
     };
 
     Ok((provider, metrics))

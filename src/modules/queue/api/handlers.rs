@@ -3,8 +3,14 @@ use actix_web::{HttpResponse, web};
 use crate::{api::ApiError, app::ApplicationContext};
 
 use super::{
-    super::{application::CreateQueueError, domain::QueueSettingsError},
-    dto::{CreateQueueRequest, CreateQueueResponse},
+    super::{
+        application::{CreateQueueError, EnqueueMessageError},
+        domain::{MessageValidationError, QueueSettingsError},
+    },
+    dto::{
+        CreateQueueRequest, CreateQueueResponse, EnqueueMessageRequest, EnqueueMessageResponse,
+        QueuePath,
+    },
 };
 
 pub(super) async fn create_queue(
@@ -36,6 +42,38 @@ fn map_create_queue_error(error: CreateQueueError) -> ApiError {
             "a queue with this name already exists",
         ),
         CreateQueueError::Persistence(error) => ApiError::internal(error),
+    }
+}
+
+pub(super) async fn enqueue_message(
+    context: web::Data<ApplicationContext>,
+    path: web::Path<QueuePath>,
+    request: web::Json<EnqueueMessageRequest>,
+) -> Result<HttpResponse, ApiError> {
+    let queue_name = path.into_inner().into_queue_name();
+    let command = request.into_inner().into_command(queue_name);
+
+    let enqueued_message = context
+        .queue_module()
+        .enqueue_message(command)
+        .await
+        .map_err(map_enqueue_message_error)?;
+
+    Ok(HttpResponse::Created().json(EnqueueMessageResponse::from(enqueued_message)))
+}
+
+fn map_enqueue_message_error(error: EnqueueMessageError) -> ApiError {
+    match error {
+        EnqueueMessageError::InvalidMessage(error @ MessageValidationError::InvalidPriority) => {
+            ApiError::bad_request("invalid_priority", error.to_string())
+        }
+        EnqueueMessageError::InvalidMessage(error @ MessageValidationError::InvalidTtl) => {
+            ApiError::bad_request("invalid_ttl", error.to_string())
+        }
+        EnqueueMessageError::QueueNotFound => {
+            ApiError::resource_not_found("queue_not_found", "the requested queue does not exist")
+        }
+        EnqueueMessageError::Persistence(error) => ApiError::internal(error),
     }
 }
 

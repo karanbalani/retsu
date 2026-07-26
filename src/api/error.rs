@@ -60,6 +60,13 @@ impl ApiError {
         Self::new(StatusCode::CONFLICT, code, detail)
     }
 
+    pub(crate) fn resource_not_found(
+        code: &'static str,
+        detail: impl Into<Cow<'static, str>>,
+    ) -> Self {
+        Self::new(StatusCode::NOT_FOUND, code, detail)
+    }
+
     fn new(status: StatusCode, code: &'static str, detail: impl Into<Cow<'static, str>>) -> Self {
         Self {
             status,

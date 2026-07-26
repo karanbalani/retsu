@@ -19,7 +19,7 @@ impl ApplicationContext {
     ) -> Result<Self, sqlx::Error> {
         let database_pool = database::connect(&configuration.database).await?;
 
-        let queue_module = QueueModule::new(database_pool.clone());
+        let queue_module = QueueModule::new(database_pool.clone(), metrics.queue().clone());
 
         tracing::info!("application dependencies initialized");
 

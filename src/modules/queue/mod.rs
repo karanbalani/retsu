@@ -6,18 +6,25 @@ mod infrastructure;
 use actix_web::web;
 use sqlx::PgPool;
 
-use application::{CreateQueueCommand, CreateQueueError, CreatedQueue, execute_create_queue};
+use application::{
+    CreateQueueCommand, CreateQueueError, CreatedQueue, EnqueueMessageCommand, EnqueueMessageError,
+    EnqueuedMessage, execute_create_queue, execute_enqueue_message,
+};
 use infrastructure::PostgresQueueRepository;
+
+use crate::observability::QueueMetrics;
 
 #[derive(Clone)]
 pub(crate) struct QueueModule {
     repository: PostgresQueueRepository,
+    metrics: QueueMetrics,
 }
 
 impl QueueModule {
-    pub(crate) fn new(database_pool: PgPool) -> Self {
+    pub(crate) fn new(database_pool: PgPool, metrics: QueueMetrics) -> Self {
         Self {
             repository: PostgresQueueRepository::new(database_pool),
+            metrics,
         }
     }
 
@@ -26,6 +33,18 @@ impl QueueModule {
         command: CreateQueueCommand,
     ) -> Result<CreatedQueue, CreateQueueError> {
         execute_create_queue(&self.repository, command).await
+    }
+
+    async fn enqueue_message(
+        &self,
+        command: EnqueueMessageCommand,
+    ) -> Result<EnqueuedMessage, EnqueueMessageError> {
+        let message = execute_enqueue_message(&self.repository, command).await?;
+
+        self.metrics
+            .message_enqueued(message.queue_name(), message.priority());
+
+        Ok(message)
     }
 }
 
