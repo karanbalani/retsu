@@ -6,7 +6,7 @@ pub(crate) use error::ApiError;
 
 use std::{io, net::SocketAddr};
 
-use actix_web::{App, HttpServer, web};
+use actix_web::{App, HttpServer, middleware::Compress, web};
 
 use crate::{
     app::ApplicationContext,
@@ -33,6 +33,7 @@ pub(crate) async fn serve(
             .app_data(extractors::json_config())
             .app_data(extractors::path_config())
             .app_data(extractors::query_config())
+            .wrap(Compress::default())
             .wrap(HttpMetricsMiddleware::new(metrics.clone()))
             .wrap(default_response_headers())
             .wrap(HttpTracingMiddleware)

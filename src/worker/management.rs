@@ -1,6 +1,6 @@
 use std::net::SocketAddr;
 
-use actix_web::{App, HttpServer, web};
+use actix_web::{App, HttpServer, middleware::Compress, web};
 use anyhow::Context as _;
 use tokio_util::sync::CancellationToken;
 
@@ -31,6 +31,7 @@ async fn serve(
     let server = HttpServer::new(move || {
         App::new()
             .app_data(context.clone())
+            .wrap(Compress::default())
             .wrap(HttpMetricsMiddleware::new(metrics.clone()))
             .wrap(default_response_headers())
             .wrap(RequestIdMiddleware)
