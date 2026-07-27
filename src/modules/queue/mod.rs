@@ -25,6 +25,8 @@ use crate::observability::{DatabaseMetrics, QueueInstrumentation, QueuePriorityS
 
 use infrastructure::PostgresQueueRepository;
 
+type QueueStateCollectorLease = <PostgresQueueRepository as QueueStateRepository>::CollectorLease;
+
 const WORKERS: &[WorkerDefinition] = &[
     WorkerDefinition::new(
         worker::VISIBILITY_TIMEOUT_PROCESSOR_NAME,
@@ -143,10 +145,19 @@ impl QueueModule {
         Ok(summary)
     }
 
-    async fn refresh_state_metrics(&self) -> Result<(), anyhow::Error> {
+    async fn try_acquire_state_collector_lease(
+        &self,
+    ) -> Result<Option<QueueStateCollectorLease>, anyhow::Error> {
+        self.repository.try_acquire_collector_lease().await
+    }
+
+    async fn refresh_state_metrics(
+        &self,
+        lease: &mut QueueStateCollectorLease,
+    ) -> Result<(), anyhow::Error> {
         let metrics = self.instrumentation.state();
         let started = Instant::now();
-        let result = self.repository.queue_state().await;
+        let result = self.repository.queue_state(lease).await;
 
         match result {
             Ok(snapshot) => {

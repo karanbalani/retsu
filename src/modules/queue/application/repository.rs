@@ -226,7 +226,16 @@ impl QueuePriorityStateSnapshot {
 }
 
 pub(in crate::modules::queue) trait QueueStateRepository {
-    async fn queue_state(&self) -> Result<Vec<QueuePriorityStateSnapshot>, anyhow::Error>;
+    type CollectorLease;
+
+    async fn try_acquire_collector_lease(
+        &self,
+    ) -> Result<Option<Self::CollectorLease>, anyhow::Error>;
+
+    async fn queue_state(
+        &self,
+        lease: &mut Self::CollectorLease,
+    ) -> Result<Vec<QueuePriorityStateSnapshot>, anyhow::Error>;
 }
 
 pub(in crate::modules::queue) trait QueueRepository {
