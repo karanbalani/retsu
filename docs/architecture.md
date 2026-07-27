@@ -79,8 +79,10 @@ message expires, the cleaner waits for its visibility timeout to end before
 removing it.
 
 See [Queues and messages](queues.md) for the requests, responses, and settings
-used in this flow. See [Local services](../infra/local/README.md) for the
-database and monitoring tools.
+used in this flow. See the [Codebase guide](codebase-guide.md) to understand the
+dependency setup and module boundaries. See
+[Local services](../infra/local/README.md) for the database and monitoring
+tools.
 
 ## Where the code lives
 
