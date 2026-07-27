@@ -168,7 +168,7 @@ removed and will not be returned again.
 Run the worker alongside the API:
 
 ```bash
-just worker
+just worker queue visibility-timeout-processor
 ```
 
 If a returned message is not completed before its visibility timeout, the

@@ -90,10 +90,10 @@ Run the API and send its activity to the monitoring tools:
 just api-observed
 ```
 
-Run workers and send their activity to the monitoring tools:
+Run the queue worker and send its activity to the monitoring tools:
 
 ```bash
-just worker-observed
+just worker-observed queue visibility-timeout-processor
 ```
 
 Inspect running and stopped services:

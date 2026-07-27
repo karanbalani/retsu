@@ -58,10 +58,17 @@ A ready API returns:
 Follow the [queues and messages guide](queues.md) to create a queue, add a
 message, get the next one, and complete it.
 
-Start the worker in a separate terminal:
+List the available worker module and its workers:
 
 ```bash
-just worker
+just worker-modules
+just worker-list queue
+```
+
+Start the queue worker in a separate terminal:
+
+```bash
+just worker queue visibility-timeout-processor
 ```
 
 The worker makes messages available again when they are not completed before
@@ -81,11 +88,11 @@ Start PostgreSQL and all monitoring tools:
 just stack-up
 ```
 
-Run the API or worker with request tracking enabled:
+Run the API or queue worker with activity tracking enabled:
 
 ```bash
 just api-observed
-just worker-observed
+just worker-observed queue visibility-timeout-processor
 ```
 
 See the [local services guide](../infra/local/README.md) for ports, logs, reset
