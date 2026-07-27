@@ -684,9 +684,13 @@ mod tests {
         sqlx::query(
             r#"
             INSERT INTO queue (
-                id, name, visibility_timeout_seconds, max_delivery_attempts
+                id,
+                name,
+                visibility_timeout_seconds,
+                max_delivery_attempts,
+                default_message_ttl_seconds
             )
-            VALUES ($1, 'email-delivery', 30, 2)
+            VALUES ($1, 'email-delivery', 30, 2, 3600)
             "#,
         )
         .bind(queue_id)
@@ -729,7 +733,7 @@ mod tests {
                     2,
                     'IN_FLIGHT',
                     CURRENT_TIMESTAMP - INTERVAL '10 minutes',
-                    NULL,
+                    CURRENT_TIMESTAMP + INTERVAL '1 hour',
                     2,
                     $7,
                     CURRENT_TIMESTAMP - INTERVAL '1 minute',
@@ -803,7 +807,7 @@ mod tests {
                 priority,
                 delivery_attempts,
                 reason,
-                expires_at IS NULL
+                expires_at IS NOT NULL
             FROM queue_dead_letter_message
             WHERE id = $1
             "#,
@@ -817,7 +821,7 @@ mod tests {
         assert_eq!(dead_letter.2, 2);
         assert_eq!(dead_letter.3, 2);
         assert_eq!(dead_letter.4, "MAX_DELIVERY_ATTEMPTS_EXHAUSTED");
-        assert!(dead_letter.5, "NULL expiration should be preserved");
+        assert!(dead_letter.5, "expiration should be preserved");
 
         drop(repository);
         provider.shutdown().expect("provider should shut down");
