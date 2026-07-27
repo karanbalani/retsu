@@ -141,10 +141,10 @@ just integration-test
 Docker must be running, but the local Compose stack does not need to be started.
 Testcontainers removes each PostgreSQL container when its scenario finishes.
 
-Pull requests run the integration job only when they have the
-`run-integration-tests` label. Adding the label triggers the workflow, and later
-commits continue to run the job while the label remains. Pushes to `main` always
-run the integration suite.
+Pull requests run the integration workflow only when the
+`run-integration-tests` label is added. Later commits do not rerun it
+automatically; remove and re-add the label for another deliberate run. Pushes to
+`main` always run the integration suite.
 
 ## Where to add a change
 
