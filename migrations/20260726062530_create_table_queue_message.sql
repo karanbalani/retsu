@@ -6,7 +6,7 @@ CREATE TABLE queue_message (
     priority SMALLINT NOT NULL,
     state TEXT NOT NULL DEFAULT 'READY',
     enqueued_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    expires_at TIMESTAMPTZ,
+    expires_at TIMESTAMPTZ NOT NULL,
     delivery_attempts SMALLINT NOT NULL DEFAULT 0,
     receipt_handle UUID,
     visibility_deadline TIMESTAMPTZ,
@@ -28,7 +28,8 @@ CHECK (delivery_attempts >= 0);
 ALTER TABLE queue_message
 ADD CONSTRAINT queue_message_expiration_after_enqueue
 CHECK (
-    expires_at IS NULL OR expires_at > enqueued_at
+    expires_at > enqueued_at
+    AND expires_at <= enqueued_at + INTERVAL '30 days'
 );
 
 ALTER TABLE queue_message
@@ -78,5 +79,4 @@ ON queue_message (visibility_deadline)
 WHERE state = 'IN_FLIGHT';
 
 CREATE INDEX idx_queue_message_expiration
-ON queue_message(expires_at)
-WHERE expires_at IS NOT NULL;
+ON queue_message (expires_at);

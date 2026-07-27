@@ -33,16 +33,24 @@ fn map_create_queue_error(error: CreateQueueError) -> ApiError {
         CreateQueueError::InvalidName(error) => {
             ApiError::bad_request("invalid_queue_name", error.to_string())
         }
+
         CreateQueueError::InvalidSettings(error @ QueueSettingsError::InvalidVisibilityTimeout) => {
             ApiError::bad_request("invalid_visibility_timeout", error.to_string())
         }
+
         CreateQueueError::InvalidSettings(
             error @ QueueSettingsError::InvalidMaxDeliveryAttempts,
         ) => ApiError::bad_request("invalid_max_delivery_attempts", error.to_string()),
+
+        CreateQueueError::InvalidSettings(error @ QueueSettingsError::InvalidDefaultMessageTtl) => {
+            ApiError::bad_request("invalid_default_message_ttl", error.to_string())
+        }
+
         CreateQueueError::AlreadyExists => ApiError::conflict(
             "queue_already_exists",
             "a queue with this name already exists",
         ),
+
         CreateQueueError::Persistence(error) => ApiError::internal(error),
     }
 }
@@ -69,12 +77,15 @@ fn map_enqueue_message_error(error: EnqueueMessageError) -> ApiError {
         EnqueueMessageError::InvalidMessage(error @ MessageValidationError::InvalidPriority) => {
             ApiError::bad_request("invalid_priority", error.to_string())
         }
+
         EnqueueMessageError::InvalidMessage(error @ MessageValidationError::InvalidTtl) => {
             ApiError::bad_request("invalid_ttl", error.to_string())
         }
+
         EnqueueMessageError::QueueNotFound => {
             ApiError::resource_not_found("queue_not_found", "the requested queue does not exist")
         }
+
         EnqueueMessageError::Persistence(error) => ApiError::internal(error),
     }
 }
@@ -101,6 +112,7 @@ fn map_dequeue_message_error(error: DequeueMessageError) -> ApiError {
         DequeueMessageError::QueueNotFound => {
             ApiError::resource_not_found("queue_not_found", "the requested queue does not exist")
         }
+
         DequeueMessageError::Persistence(error) => ApiError::internal(error),
     }
 }

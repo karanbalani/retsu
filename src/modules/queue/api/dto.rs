@@ -12,6 +12,7 @@ pub(super) struct CreateQueueRequest {
     name: String,
     visibility_timeout_seconds: Option<u32>,
     max_delivery_attempts: Option<u16>,
+    default_message_ttl_seconds: Option<u32>,
 }
 
 impl CreateQueueRequest {
@@ -20,6 +21,7 @@ impl CreateQueueRequest {
             self.name,
             self.visibility_timeout_seconds,
             self.max_delivery_attempts,
+            self.default_message_ttl_seconds,
         )
     }
 }
@@ -30,6 +32,7 @@ pub(super) struct CreateQueueResponse {
     name: String,
     visibility_timeout_seconds: u32,
     max_delivery_attempts: u16,
+    default_message_ttl_seconds: u32,
 }
 
 impl From<CreatedQueue> for CreateQueueResponse {
@@ -39,6 +42,7 @@ impl From<CreatedQueue> for CreateQueueResponse {
             name: queue.name().to_owned(),
             visibility_timeout_seconds: queue.visibility_timeout_seconds(),
             max_delivery_attempts: queue.max_delivery_attempts(),
+            default_message_ttl_seconds: queue.default_message_ttl_seconds(),
         }
     }
 }

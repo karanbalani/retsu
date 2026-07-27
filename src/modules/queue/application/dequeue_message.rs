@@ -202,6 +202,13 @@ mod tests {
         ) -> Result<TimeoutProcessingSummary, anyhow::Error> {
             unreachable!("this test should not process timed-out messages")
         }
+
+        async fn process_expired_messages(
+            &self,
+            _batch_size: u32,
+        ) -> Result<crate::modules::queue::ExpiredMessagesCleanupSummary, anyhow::Error> {
+            unreachable!("this test should not process expired messages")
+        }
     }
 
     #[tokio::test]
