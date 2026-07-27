@@ -23,6 +23,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
+    services:
+      postgres:
+        image: postgres:18.4-alpine
+        env:
+          POSTGRES_DB: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready --username postgres --dbname postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 15
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
@@ -40,6 +55,14 @@ jobs:
 
       - name: Run tests
         run: cargo test --locked --all-targets --all-features
+
+      - name: Run PostgreSQL integration tests
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+        run: >-
+          cargo test --locked --all-targets --all-features
+          processing_timeouts_requeues_retryable_and_dead_letters_exhausted_messages
+          -- --ignored
 
   compose:
     name: Validate Docker Compose
