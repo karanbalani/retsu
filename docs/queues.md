@@ -29,8 +29,8 @@ The `id` will be different for every queue.
 ### Queue settings
 
 The visibility timeout controls how long a returned message can be completed.
-The worker makes timed-out messages available again. The delivery attempt limit
-is saved but is not enforced yet.
+The worker makes timed-out messages available again until the delivery attempt
+limit is reached. Messages that reach the limit are stored separately.
 
 | Field | What it controls | Accepted value | Default |
 | --- | --- | --- | --- |
@@ -172,6 +172,11 @@ just worker
 ```
 
 If a returned message is not completed before its visibility timeout, the
-worker makes it available again. A later request can return the message with a
-new `receipt_handle` and a higher `delivery_attempts` value. The old receipt
-handle will no longer work.
+worker makes it available again while its `delivery_attempts` value is below
+the queue's `max_delivery_attempts` setting. A later request can return the
+message with a new `receipt_handle` and a higher `delivery_attempts` value. The
+old receipt handle will no longer work.
+
+When a message reaches the delivery attempt limit without being completed,
+Retsu removes it from the active queue and stores it separately. There is no
+API to view or restore these messages yet.
