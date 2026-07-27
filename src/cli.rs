@@ -18,12 +18,31 @@ pub(crate) struct Cli {
 }
 
 #[derive(Debug, Subcommand)]
-pub enum Command {
+pub(crate) enum Command {
     /// Run the HTTP API server
     Api,
 
-    /// Run one named background worker
+    /// Inspect or run background workers
     Worker {
+        #[command(subcommand)]
+        command: WorkerCommand,
+    },
+
+    /// Apply the pending database migrations
+    Migrate,
+}
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum WorkerCommand {
+    /// List worker modules or workers owned by one module
+    List {
+        /// Module whose workers should be listed
+        #[arg(value_name = "MODULE")]
+        module: Option<String>,
+    },
+
+    /// Run one named worker
+    Run {
         /// Module that owns the worker
         #[arg(value_name = "MODULE")]
         module: String,
@@ -32,58 +51,100 @@ pub enum Command {
         #[arg(value_name = "NAME")]
         name: String,
     },
-
-    /// Apply the pending database migrations
-    Migrate,
 }
 
-impl Command {
-    pub(crate) fn as_str(&self) -> &'static str {
-        match self {
-            Self::Api => "api",
-            Self::Worker { .. } => "worker",
-            Self::Migrate => "migrate",
-        }
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use clap::{Parser as _, error::ErrorKind};
+
+    use super::{Cli, Command, WorkerCommand};
+
+    #[test]
+    fn parses_each_process_mode_and_worker_command() {
+        let api = Cli::try_parse_from(["retsu", "api"]).expect("API command should parse");
+
+        assert!(matches!(&api.command, Command::Api));
+
+        let worker = Cli::try_parse_from([
+            "retsu",
+            "worker",
+            "run",
+            "queue",
+            "visibility-timeout-processor",
+        ])
+        .expect("worker run command should parse");
+
+        assert!(matches!(
+            &worker.command,
+            Command::Worker {
+                command: WorkerCommand::Run { module, name },
+            } if module.as_str() == "queue"
+                && name.as_str() == "visibility-timeout-processor"
+        ));
+
+        let list = Cli::try_parse_from(["retsu", "worker", "list"])
+            .expect("worker list command should parse");
+
+        assert!(matches!(
+            &list.command,
+            Command::Worker {
+                command: WorkerCommand::List { module: None },
+            }
+        ));
+
+        let migrate =
+            Cli::try_parse_from(["retsu", "migrate"]).expect("migration command should parse");
+
+        assert!(matches!(&migrate.command, Command::Migrate));
     }
 
-    pub(crate) fn worker_selection(&self) -> Option<(&str, &str)> {
-        match self {
-            Self::Worker { module, name } => Some((module.as_str(), name.as_str())),
-            Self::Api | Self::Migrate => None,
-        }
+    #[test]
+    fn requires_worker_subcommand_and_run_selection() {
+        assert!(
+            Cli::try_parse_from(["retsu", "worker"]).is_err(),
+            "worker command should require list or run"
+        );
+
+        let missing_module = Cli::try_parse_from(["retsu", "worker", "run"])
+            .expect_err("worker module should be required");
+
+        assert_eq!(missing_module.kind(), ErrorKind::MissingRequiredArgument);
+
+        let missing_name = Cli::try_parse_from(["retsu", "worker", "run", "queue"])
+            .expect_err("worker name should be required");
+
+        assert_eq!(missing_name.kind(), ErrorKind::MissingRequiredArgument);
+    }
+
+    #[test]
+    fn accepts_global_config_before_or_after_worker_selection() {
+        let before = Cli::try_parse_from(["retsu", "--config", "custom.yaml", "api"])
+            .expect("global option before command should parse");
+
+        let after = Cli::try_parse_from([
+            "retsu",
+            "worker",
+            "run",
+            "queue",
+            "visibility-timeout-processor",
+            "--config",
+            "custom.yaml",
+        ])
+        .expect("global option after worker selection should parse");
+
+        assert!(matches!(&before.command, Command::Api));
+
+        assert!(matches!(
+            &after.command,
+            Command::Worker {
+                command: WorkerCommand::Run { module, name },
+            } if module.as_str() == "queue"
+                && name.as_str() == "visibility-timeout-processor"
+        ));
+
+        assert_eq!(before.config, Some(PathBuf::from("custom.yaml")));
+        assert_eq!(after.config, Some(PathBuf::from("custom.yaml")));
     }
 }
-
-// #[cfg(test)]
-// mod tests {
-//     use std::path::PathBuf;
-
-//     use clap::Parser as _;
-
-//     use super::{Cli, Command};
-
-//     #[test]
-//     fn parses_each_process_mode() {
-//         let cases = [("api", "api"), ("worker", "worker"), ("migrate", "migrate")];
-
-//         for (argument, expected_mode) in cases {
-//             let cli = Cli::try_parse_from(["retsu", argument]).expect("command should parse");
-
-//             assert_eq!(cli.command.as_str(), expected_mode);
-//             assert_eq!(cli.config, None);
-//         }
-//     }
-
-//     #[test]
-//     fn accepts_global_config_before_or_after_the_subcommand() {
-//         let before = Cli::try_parse_from(["retsu", "--config", "custom.yaml", "api"])
-//             .expect("global option before subcommand should parse");
-//         let after = Cli::try_parse_from(["retsu", "worker", "--config", "custom.yaml"])
-//             .expect("global option after subcommand should parse");
-
-//         assert!(matches!(before.command, Command::Api));
-//         assert!(matches!(after.command, Command::Worker { .. }));
-//         assert_eq!(before.config, Some(PathBuf::from("custom.yaml")));
-//         assert_eq!(after.config, Some(PathBuf::from("custom.yaml")));
-//     }
-// }

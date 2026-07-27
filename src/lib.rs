@@ -11,31 +11,43 @@ mod observability;
 mod shutdown;
 mod worker;
 
+use std::io::Write as _;
+
 use clap::Parser;
 use tracing::Instrument;
 
 pub async fn run() -> anyhow::Result<()> {
-    let cli = cli::Cli::parse();
+    let prepared = entrypoints::prepare(cli::Cli::parse())?;
 
-    let configuration = configuration::load(cli.config.as_deref())?;
+    let runtime: entrypoints::RuntimeEntrypoint = match prepared {
+        entrypoints::PreparedEntrypoint::Output(output) => {
+            let mut stdout = std::io::stdout().lock();
+            stdout.write_all(output.as_bytes())?;
+            return Ok(());
+        }
+
+        entrypoints::PreparedEntrypoint::Runtime(runtime) => runtime,
+    };
+
+    let configuration = configuration::load(runtime.config_path())?;
 
     let observability = observability::initialize(&configuration)?;
-
     let metrics = observability.metrics();
 
-    let process_mode = cli.command.as_str();
+    let process_mode = runtime.process_mode();
+    let worker_selection = runtime.worker_selection();
 
     let process_span = tracing::info_span!(
         "application",
-            service_name = env!("CARGO_PKG_NAME"),
-            service_version = env!("CARGO_PKG_VERSION"),
-            environment = %configuration.environment,
-            process_mode,
-            worker.module = tracing::field::Empty,
-            worker.name = tracing::field::Empty
+        service_name = env!("CARGO_PKG_NAME"),
+        service_version = env!("CARGO_PKG_VERSION"),
+        environment = %configuration.environment,
+        process_mode,
+        worker.module = tracing::field::Empty,
+        worker.name = tracing::field::Empty,
     );
 
-    if let Some((module, name)) = cli.command.worker_selection() {
+    if let Some((module, name)) = worker_selection {
         process_span.record("worker.module", module);
         process_span.record("worker.name", name);
     }
@@ -43,22 +55,18 @@ pub async fn run() -> anyhow::Result<()> {
     let result = async move {
         tracing::info!("process mode started");
 
-        let result = match cli.command {
-            cli::Command::Api => entrypoints::api::run(configuration, metrics).await,
-
-            cli::Command::Worker { module, name } => {
-                entrypoints::worker::run(configuration, metrics, module, name).await
-            }
-
-            cli::Command::Migrate => entrypoints::migrate::run(configuration).await,
-        };
+        let result = runtime.run(configuration, metrics).await;
 
         match &result {
-            Ok(_) => {
+            Ok(()) => {
                 tracing::info!("process mode exited");
             }
+
             Err(error) => {
-                tracing::error!(error = %error, "process mode failed");
+                tracing::error!(
+                    error = %error,
+                    "process mode failed"
+                );
             }
         }
 
