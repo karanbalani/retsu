@@ -2,6 +2,11 @@ name: CI
 
 on:
   pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - labeled
   push:
     branches:
       - main
@@ -22,21 +27,6 @@ jobs:
     name: Rust quality gates
     runs-on: ubuntu-latest
     timeout-minutes: 15
-
-    services:
-      postgres:
-        image: postgres:18.4-alpine
-        env:
-          POSTGRES_DB: postgres
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready --username postgres --dbname postgres"
-          --health-interval 2s
-          --health-timeout 5s
-          --health-retries 15
 
     steps:
       - name: Check out repository
@@ -64,16 +54,42 @@ jobs:
       - name: Run Clippy
         run: cargo clippy --locked --all-targets --all-features -- -D warnings
 
-      - name: Run tests
-        run: cargo test --locked --all-targets --all-features
+      - name: Run unit tests
+        run: cargo test --locked --lib --all-features
 
-      - name: Run PostgreSQL integration tests
-        env:
-          DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+  integration:
+    name: Integration tests
+    if: >-
+      github.event_name == 'push' ||
+      contains(github.event.pull_request.labels.*.name, 'run-integration-tests')
+    needs: rust
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Activate pinned Rust toolchain
+        run: |
+          rustc --version
+          cargo --version
+
+      - name: Restore Rust dependency and build cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: rust-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml') }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            rust-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml') }}-
+
+      - name: Run integration tests
         run: >-
-          cargo test --locked --all-targets --all-features
-          modules::queue::infrastructure::postgres::tests
-          -- --ignored
+          cargo test --locked --test integration --all-features
+          -- --test-threads=1
 
   compose:
     name: Validate Docker Compose
