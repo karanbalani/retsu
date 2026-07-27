@@ -4,6 +4,8 @@ mod domain;
 mod infrastructure;
 mod worker;
 
+use std::time::Instant;
+
 use actix_web::web;
 use sqlx::PgPool;
 
@@ -13,13 +15,15 @@ use application::{
     AcknowledgeMessageCommand, AcknowledgeMessageError, CreateQueueCommand, CreateQueueError,
     CreatedQueue, DequeueMessageCommand, DequeueMessageError, DequeuedMessage,
     EnqueueMessageCommand, EnqueueMessageError, EnqueuedMessage, ExpiredMessagesCleanupSummary,
-    ProcessExpiredMessagesError, ProcessTimedOutMessagesError, TimeoutProcessingSummary,
-    execute_acknowledge_message, execute_create_queue, execute_dequeue_message,
-    execute_enqueue_message, execute_process_expired_messages, execute_process_timed_out_messages,
+    ProcessExpiredMessagesError, ProcessTimedOutMessagesError, QueueStateRepository,
+    TimeoutProcessingSummary, execute_acknowledge_message, execute_create_queue,
+    execute_dequeue_message, execute_enqueue_message, execute_process_expired_messages,
+    execute_process_timed_out_messages,
 };
-use infrastructure::PostgresQueueRepository;
 
-use crate::observability::{DatabaseMetrics, QueueMetrics};
+use crate::observability::{DatabaseMetrics, QueueInstrumentation, QueuePriorityStateMetric};
+
+use infrastructure::PostgresQueueRepository;
 
 const WORKERS: &[WorkerDefinition] = &[
     WorkerDefinition::new(
@@ -30,6 +34,10 @@ const WORKERS: &[WorkerDefinition] = &[
         worker::EXPIRED_MESSAGE_CLEANER_NAME,
         worker::expired_message_cleaner_registration,
     ),
+    WorkerDefinition::new(
+        worker::STATE_METRICS_COLLECTOR_NAME,
+        worker::state_metrics_collector_registration,
+    ),
 ];
 
 pub(super) const DEFINITION: ModuleDefinition = ModuleDefinition::new("queue")
@@ -39,18 +47,18 @@ pub(super) const DEFINITION: ModuleDefinition = ModuleDefinition::new("queue")
 #[derive(Clone)]
 pub(crate) struct QueueModule {
     repository: PostgresQueueRepository,
-    queue_metrics: QueueMetrics,
+    instrumentation: QueueInstrumentation,
 }
 
 impl QueueModule {
     pub(crate) fn new(
         database_pool: PgPool,
-        queue_metrics: QueueMetrics,
+        instrumentation: QueueInstrumentation,
         database_metrics: DatabaseMetrics,
     ) -> Self {
         Self {
             repository: PostgresQueueRepository::new(database_pool, database_metrics),
-            queue_metrics,
+            instrumentation,
         }
     }
 
@@ -67,7 +75,8 @@ impl QueueModule {
     ) -> Result<EnqueuedMessage, EnqueueMessageError> {
         let message = execute_enqueue_message(&self.repository, command).await?;
 
-        self.queue_metrics
+        self.instrumentation
+            .commands()
             .message_enqueued(message.queue_name(), message.priority());
 
         Ok(message)
@@ -88,7 +97,9 @@ impl QueueModule {
 
         execute_acknowledge_message(&self.repository, command).await?;
 
-        self.queue_metrics.message_acknowledged(&queue_name);
+        self.instrumentation
+            .commands()
+            .message_acknowledged(&queue_name);
 
         Ok(())
     }
@@ -98,13 +109,11 @@ impl QueueModule {
         batch_size: u32,
     ) -> Result<TimeoutProcessingSummary, ProcessTimedOutMessagesError> {
         let summary = execute_process_timed_out_messages(&self.repository, batch_size).await?;
+        let metrics = self.instrumentation.visibility_timeout();
 
-        for queue_summary in summary.per_queue() {
-            self.queue_metrics
-                .messages_requeued(queue_summary.queue_name(), queue_summary.requeued());
-
-            self.queue_metrics
-                .messages_dead_lettered(queue_summary.queue_name(), queue_summary.dead_lettered());
+        for queue in summary.per_queue() {
+            metrics.messages_requeued(queue.queue_name(), queue.requeued());
+            metrics.messages_dead_lettered(queue.queue_name(), queue.dead_lettered());
         }
 
         Ok(summary)
@@ -115,22 +124,58 @@ impl QueueModule {
         batch_size: u32,
     ) -> Result<ExpiredMessagesCleanupSummary, ProcessExpiredMessagesError> {
         let summary = execute_process_expired_messages(&self.repository, batch_size).await?;
+        let metrics = self.instrumentation.expired_message_cleaner();
 
-        for queue_summary in summary.per_queue() {
-            self.queue_metrics.messages_expired(
-                queue_summary.queue_name(),
+        for queue in summary.per_queue() {
+            metrics.messages_expired(
+                queue.queue_name(),
                 "never_delivered",
-                queue_summary.never_delivered(),
+                queue.never_delivered(),
             );
 
-            self.queue_metrics.messages_expired(
-                queue_summary.queue_name(),
+            metrics.messages_expired(
+                queue.queue_name(),
                 "previously_delivered",
-                queue_summary.previously_delivered(),
+                queue.previously_delivered(),
             );
         }
 
         Ok(summary)
+    }
+
+    async fn refresh_state_metrics(&self) -> Result<(), anyhow::Error> {
+        let metrics = self.instrumentation.state();
+        let started = Instant::now();
+        let result = self.repository.queue_state().await;
+
+        match result {
+            Ok(snapshot) => {
+                let measurements = snapshot
+                    .into_iter()
+                    .map(|state| {
+                        QueuePriorityStateMetric::new(
+                            state.queue_name().to_owned(),
+                            state.priority().as_str(),
+                            state.ready(),
+                            state.in_flight(),
+                            state.oldest_ready_age_seconds(),
+                            state.oldest_in_flight_age_seconds(),
+                        )
+                    })
+                    .collect();
+
+                metrics.replace(measurements);
+                metrics.collection_finished(started.elapsed(), true);
+
+                Ok(())
+            }
+
+            Err(error) => {
+                metrics.collection_finished(started.elapsed(), false);
+
+                Err(error)
+            }
+        }
     }
 }
 

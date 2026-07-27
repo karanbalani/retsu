@@ -6,8 +6,8 @@ use super::super::{
     application::{
         AcknowledgeMessageOutcome, CreateQueueOutcome, DequeueMessageOutcome,
         EnqueueMessageOutcome, ExpiredMessagesCleanupSummary, MessageRepository,
-        QueueExpiredMessagesCleanupSummary, QueueRepository, QueueTimeoutProcessingSummary,
-        TimeoutProcessingSummary,
+        QueueExpiredMessagesCleanupSummary, QueuePriorityStateSnapshot, QueueRepository,
+        QueueStateRepository, QueueTimeoutProcessingSummary, TimeoutProcessingSummary,
     },
     domain::{Message, MessagePriority, Queue},
 };
@@ -57,6 +57,16 @@ struct ProcessExpiredMessagesRow {
     queue_name: String,
     never_delivered: i64,
     previously_delivered: i64,
+}
+
+#[derive(sqlx::FromRow)]
+struct QueuePriorityStateRow {
+    queue_name: String,
+    priority: i16,
+    ready: i64,
+    in_flight: i64,
+    oldest_ready_age_seconds: f64,
+    oldest_in_flight_age_seconds: f64,
 }
 
 impl QueueRepository for PostgresQueueRepository {
@@ -659,6 +669,147 @@ impl MessageRepository for PostgresQueueRepository {
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(ExpiredMessagesCleanupSummary::new(per_queue))
+    }
+}
+
+impl QueueStateRepository for PostgresQueueRepository {
+    #[tracing::instrument(
+        name = "db.operation",
+        skip_all,
+        fields(
+            db.system.name = "postgresql",
+            db.operation.name = "queue.read_state_metrics",
+            db.pool.acquire.duration = field::Empty,
+            error.type = field::Empty,
+            otel.status_code = field::Empty,
+        ),
+        err
+    )]
+    async fn queue_state(&self) -> Result<Vec<QueuePriorityStateSnapshot>, anyhow::Error> {
+        let mut connection = database::acquire(&self.pool, &self.metrics).await?;
+
+        let started = Instant::now();
+
+        let result = sqlx::query_as::<_, QueuePriorityStateRow>(
+            r#"
+            WITH priorities(priority) AS (
+                VALUES
+                    (3::SMALLINT),
+                    (2::SMALLINT),
+                    (1::SMALLINT)
+            ),
+            state_by_priority AS (
+                SELECT
+                    message.queue_id,
+                    message.priority,
+                    COUNT(*) FILTER (
+                        WHERE message.state = 'READY'
+                          AND message.expires_at > CURRENT_TIMESTAMP
+                    ) AS ready,
+                    COUNT(*) FILTER (
+                        WHERE message.state = 'IN_FLIGHT'
+                          AND message.visibility_deadline > CURRENT_TIMESTAMP
+                    ) AS in_flight,
+                    MIN(message.enqueued_at) FILTER (
+                        WHERE message.state = 'READY'
+                          AND message.expires_at > CURRENT_TIMESTAMP
+                    ) AS oldest_ready_enqueued_at,
+                    MIN(message.enqueued_at) FILTER (
+                        WHERE message.state = 'IN_FLIGHT'
+                          AND message.visibility_deadline > CURRENT_TIMESTAMP
+                    ) AS oldest_in_flight_enqueued_at
+                FROM queue_message AS message
+                WHERE (
+                    message.state = 'READY'
+                    AND message.expires_at > CURRENT_TIMESTAMP
+                )
+                OR (
+                    message.state = 'IN_FLIGHT'
+                    AND message.visibility_deadline > CURRENT_TIMESTAMP
+                )
+                GROUP BY
+                    message.queue_id,
+                    message.priority
+            )
+            SELECT
+                queue.name AS queue_name,
+                priorities.priority,
+                COALESCE(
+                    state_by_priority.ready,
+                    0
+                ) AS ready,
+                COALESCE(
+                    state_by_priority.in_flight,
+                    0
+                ) AS in_flight,
+                COALESCE(
+                    EXTRACT(
+                        EPOCH FROM (
+                            CURRENT_TIMESTAMP
+                            - state_by_priority.oldest_ready_enqueued_at
+                        )
+                    )::DOUBLE PRECISION,
+                    0.0
+                ) AS oldest_ready_age_seconds,
+                COALESCE(
+                    EXTRACT(
+                        EPOCH FROM (
+                            CURRENT_TIMESTAMP
+                            - state_by_priority.oldest_in_flight_enqueued_at
+                        )
+                    )::DOUBLE PRECISION,
+                    0.0
+                ) AS oldest_in_flight_age_seconds
+            FROM queue
+            CROSS JOIN priorities
+            LEFT JOIN state_by_priority
+                ON state_by_priority.queue_id = queue.id
+               AND state_by_priority.priority = priorities.priority
+            ORDER BY
+                queue.name,
+                priorities.priority DESC
+            "#,
+        )
+        .fetch_all(&mut *connection)
+        .await;
+
+        self.metrics.operation_finished(
+            "queue.read_state_metrics",
+            started.elapsed(),
+            result.is_ok(),
+        );
+
+        if let Err(error) = &result {
+            Span::current().record("error.type", database::error_type(error));
+            Span::current().record("otel.status_code", "ERROR");
+        }
+
+        result?
+            .into_iter()
+            .map(|row| {
+                let priority = MessagePriority::from_rank(row.priority).ok_or_else(|| {
+                    anyhow!(
+                        "queue state query returned invalid priority rank {}",
+                        row.priority
+                    )
+                })?;
+
+                let ready = u64::try_from(row.ready)
+                    .context("queue state query returned a negative ready count")?;
+
+                let in_flight = u64::try_from(row.in_flight)
+                    .context("queue state query returned a negative in-flight count")?;
+
+                Ok(QueuePriorityStateSnapshot::new(
+                    row.queue_name,
+                    priority,
+                    ready,
+                    in_flight,
+                    row.oldest_ready_age_seconds,
+                    row.oldest_in_flight_age_seconds,
+                ))
+            })
+            .collect()
     }
 }
 
