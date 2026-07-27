@@ -1,7 +1,4 @@
-use std::sync::{
-    Mutex,
-    atomic::{AtomicU32, Ordering},
-};
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use uuid::Uuid;
 
@@ -16,7 +13,6 @@ use crate::modules::queue::domain::Message;
 
 struct FakeMessageRepository {
     acknowledge_outcome: AcknowledgeMessageOutcome,
-    acknowledge_call: Mutex<Option<(String, Uuid, Uuid)>>,
     timeout_requeued: u64,
     timeout_dead_lettered: u64,
     timeout_batch_size: AtomicU32,
@@ -29,7 +25,6 @@ impl FakeMessageRepository {
     fn with_acknowledge_outcome(outcome: AcknowledgeMessageOutcome) -> Self {
         Self {
             acknowledge_outcome: outcome,
-            acknowledge_call: Mutex::new(None),
             timeout_requeued: 0,
             timeout_dead_lettered: 0,
             timeout_batch_size: AtomicU32::new(0),
@@ -42,7 +37,6 @@ impl FakeMessageRepository {
     fn with_timeout_counts(requeued: u64, dead_lettered: u64) -> Self {
         Self {
             acknowledge_outcome: AcknowledgeMessageOutcome::Acknowledged,
-            acknowledge_call: Mutex::new(None),
             timeout_requeued: requeued,
             timeout_dead_lettered: dead_lettered,
             timeout_batch_size: AtomicU32::new(0),
@@ -55,7 +49,6 @@ impl FakeMessageRepository {
     fn with_expired_counts(never_delivered: u64, previously_delivered: u64) -> Self {
         Self {
             acknowledge_outcome: AcknowledgeMessageOutcome::Acknowledged,
-            acknowledge_call: Mutex::new(None),
             timeout_requeued: 0,
             timeout_dead_lettered: 0,
             timeout_batch_size: AtomicU32::new(0),
@@ -85,15 +78,10 @@ impl MessageRepository for FakeMessageRepository {
 
     async fn acknowledge_message(
         &self,
-        queue_name: &str,
-        message_id: Uuid,
-        receipt_handle: Uuid,
+        _queue_name: &str,
+        _message_id: Uuid,
+        _receipt_handle: Uuid,
     ) -> Result<AcknowledgeMessageOutcome, anyhow::Error> {
-        self.acknowledge_call
-            .lock()
-            .expect("acknowledgement call lock should not be poisoned")
-            .replace((queue_name.to_owned(), message_id, receipt_handle));
-
         Ok(match self.acknowledge_outcome {
             AcknowledgeMessageOutcome::Acknowledged => AcknowledgeMessageOutcome::Acknowledged,
             AcknowledgeMessageOutcome::QueueNotFound => AcknowledgeMessageOutcome::QueueNotFound,
@@ -136,33 +124,6 @@ impl MessageRepository for FakeMessageRepository {
             ),
         ]))
     }
-}
-
-#[tokio::test]
-async fn acknowledges_the_exact_message_delivery() {
-    let repository =
-        FakeMessageRepository::with_acknowledge_outcome(AcknowledgeMessageOutcome::Acknowledged);
-    let message_id = Uuid::now_v7();
-    let receipt_handle = Uuid::new_v4();
-
-    execute_acknowledge_message(
-        &repository,
-        AcknowledgeMessageCommand::new("email-delivery".to_owned(), message_id, receipt_handle),
-    )
-    .await
-    .expect("current message delivery should be acknowledged");
-
-    let call = repository
-        .acknowledge_call
-        .lock()
-        .expect("acknowledgement call lock should not be poisoned");
-    let (queue_name, actual_message_id, actual_receipt_handle) = call
-        .as_ref()
-        .expect("repository should receive the acknowledgement");
-
-    assert_eq!(queue_name, "email-delivery");
-    assert_eq!(*actual_message_id, message_id);
-    assert_eq!(*actual_receipt_handle, receipt_handle);
 }
 
 #[tokio::test]

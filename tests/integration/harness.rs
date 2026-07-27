@@ -51,6 +51,11 @@ struct EnqueueMessageResponse {
     id: Uuid,
 }
 
+#[derive(Deserialize)]
+struct ProblemDetails {
+    code: String,
+}
+
 impl IntegrationSystem {
     pub async fn start() -> anyhow::Result<Self> {
         let log_directory =
@@ -241,6 +246,35 @@ impl IntegrationSystem {
             .context("message acknowledgement request failed")?;
 
         expect_status(response, StatusCode::NO_CONTENT, "acknowledge message").await
+    }
+
+    pub async fn rejected_acknowledgement_code(
+        &self,
+        queue_name: &str,
+        message_id: Uuid,
+        receipt_handle: Uuid,
+    ) -> anyhow::Result<String> {
+        let response = self
+            .client
+            .post(format!(
+                "{}/v1/queues/{queue_name}/messages/{message_id}/acknowledge",
+                self.api_base_url
+            ))
+            .json(&json!({ "receipt_handle": receipt_handle }))
+            .send()
+            .await
+            .context("rejected message acknowledgement request failed")?;
+
+        let body = expect_body(
+            response,
+            StatusCode::CONFLICT,
+            "reject message acknowledgement",
+        )
+        .await?;
+        let problem: ProblemDetails =
+            serde_json::from_str(&body).context("acknowledgement error was not valid JSON")?;
+
+        Ok(problem.code)
     }
 
     pub async fn worker_metrics(&self, worker: &WorkerEndpoint) -> anyhow::Result<String> {
