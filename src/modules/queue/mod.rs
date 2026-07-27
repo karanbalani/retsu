@@ -7,6 +7,8 @@ mod worker;
 use actix_web::web;
 use sqlx::PgPool;
 
+use super::definition::{ModuleDefinition, WorkerDefinition};
+
 use application::{
     AcknowledgeMessageCommand, AcknowledgeMessageError, CreateQueueCommand, CreateQueueError,
     CreatedQueue, DequeueMessageCommand, DequeueMessageError, DequeuedMessage,
@@ -16,10 +18,13 @@ use application::{
 };
 use infrastructure::PostgresQueueRepository;
 
-use crate::{
-    observability::{DatabaseMetrics, QueueMetrics},
-    worker::WorkerRegistration,
-};
+use crate::observability::{DatabaseMetrics, QueueMetrics};
+
+const WORKERS: &[WorkerDefinition] = &[WorkerDefinition::new(worker::NAME, worker::registration)];
+
+pub(super) const DEFINITION: ModuleDefinition = ModuleDefinition::new("queue")
+    .with_api(configure_api)
+    .with_workers(WORKERS);
 
 #[derive(Clone)]
 pub(crate) struct QueueModule {
@@ -98,8 +103,4 @@ impl QueueModule {
 
 pub(super) fn configure_api(configuration: &mut web::ServiceConfig) {
     api::configure(configuration);
-}
-
-pub(super) fn worker_registration() -> WorkerRegistration {
-    worker::registration()
 }
