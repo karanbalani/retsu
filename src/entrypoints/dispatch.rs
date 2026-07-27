@@ -111,3 +111,7 @@ fn worker_list_output(module: Option<&str>) -> Result<String, WorkerResolutionEr
 
     Ok(output)
 }
+
+#[cfg(test)]
+#[path = "../tests/entrypoints_dispatch.rs"]
+mod tests;
