@@ -3,23 +3,23 @@
 //! Infrastructure hosts depend only on this module. Individual
 //! business modules remain private and expose registrations here.
 
-mod registration;
+mod definition;
 
 mod queue;
 
 use actix_web::web;
-use registration::{ModuleDescriptor, WorkerDescriptor};
+use definition::{ModuleDefinition, WorkerDefinition};
 use thiserror::Error;
 
 use crate::worker::WorkerRegistration;
 
 pub(crate) use queue::QueueModule;
 
-const MODULES: &[ModuleDescriptor] = &[queue::DESCRIPTOR];
+const MODULE_CATALOG: &[ModuleDefinition] = &[queue::DEFINITION];
 
 /// Registers API routes contributed by application modules.
 pub(crate) fn configure_api(configuration: &mut web::ServiceConfig) {
-    for module in MODULES {
+    for module in MODULE_CATALOG {
         if let Some(configure_api) = module.api_configurer() {
             configure_api(configuration);
         }
@@ -28,56 +28,56 @@ pub(crate) fn configure_api(configuration: &mut web::ServiceConfig) {
 
 /// Returns modules that contribute at least one runnable worker.
 pub(crate) fn worker_module_names() -> impl Iterator<Item = &'static str> {
-    MODULES
+    MODULE_CATALOG
         .iter()
         .filter(|module| !module.workers().is_empty())
-        .map(ModuleDescriptor::name)
+        .map(ModuleDefinition::name)
 }
 
 /// Returns the worker names owned by one worker-contributing module.
 pub(crate) fn worker_names(
     module: &str,
-) -> Result<impl Iterator<Item = &'static str>, WorkerSelectionError> {
-    let module = worker_module_descriptor(module)?;
+) -> Result<impl Iterator<Item = &'static str>, WorkerResolutionError> {
+    let module = worker_module_definition(module)?;
 
-    Ok(module.workers().iter().map(WorkerDescriptor::name))
+    Ok(module.workers().iter().map(WorkerDefinition::name))
 }
 
 /// Resolves a CLI module and worker name into a canonical worker selection.
-pub(crate) fn select_worker(
+pub(crate) fn resolve_worker(
     module: &str,
     worker: &str,
-) -> Result<SelectedWorker, WorkerSelectionError> {
-    let module_descriptor = worker_module_descriptor(module)?;
+) -> Result<ResolvedWorker, WorkerResolutionError> {
+    let module_definition = worker_module_definition(module)?;
 
-    let worker_descriptor =
-        module_descriptor
+    let worker_definition =
+        module_definition
             .worker(worker)
-            .ok_or_else(|| WorkerSelectionError::UnknownWorker {
+            .ok_or_else(|| WorkerResolutionError::UnknownWorker {
                 module: module.to_owned(),
                 name: worker.to_owned(),
                 available: display_names(
-                    module_descriptor
+                    module_definition
                         .workers()
                         .iter()
-                        .map(WorkerDescriptor::name),
+                        .map(WorkerDefinition::name),
                 ),
             })?;
 
-    Ok(SelectedWorker {
-        module_name: module_descriptor.name(),
-        worker_name: worker_descriptor.name(),
-        registration: worker_descriptor.registration(),
+    Ok(ResolvedWorker {
+        module_name: module_definition.name(),
+        worker_name: worker_definition.name(),
+        registration: worker_definition.build_registration(),
     })
 }
 
-pub(crate) struct SelectedWorker {
+pub(crate) struct ResolvedWorker {
     module_name: &'static str,
     worker_name: &'static str,
     registration: WorkerRegistration,
 }
 
-impl SelectedWorker {
+impl ResolvedWorker {
     pub(crate) const fn module_name(&self) -> &'static str {
         self.module_name
     }
@@ -92,7 +92,7 @@ impl SelectedWorker {
 }
 
 #[derive(Debug, Error)]
-pub(crate) enum WorkerSelectionError {
+pub(crate) enum WorkerResolutionError {
     #[error("unknown worker module `{module}`; available modules: {available}")]
     UnknownModule { module: String, available: String },
 
@@ -107,11 +107,13 @@ pub(crate) enum WorkerSelectionError {
     },
 }
 
-fn worker_module_descriptor(name: &str) -> Result<&'static ModuleDescriptor, WorkerSelectionError> {
-    MODULES
+fn worker_module_definition(
+    name: &str,
+) -> Result<&'static ModuleDefinition, WorkerResolutionError> {
+    MODULE_CATALOG
         .iter()
         .find(|module| module.name() == name && !module.workers().is_empty())
-        .ok_or_else(|| WorkerSelectionError::UnknownModule {
+        .ok_or_else(|| WorkerResolutionError::UnknownModule {
             module: name.to_owned(),
             available: display_names(worker_module_names()),
         })

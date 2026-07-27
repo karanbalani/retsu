@@ -4,13 +4,13 @@ use crate::worker::WorkerRegistration;
 
 pub(super) type ApiConfigurer = fn(&mut web::ServiceConfig);
 
-pub(super) struct ModuleDescriptor {
+pub(super) struct ModuleDefinition {
     name: &'static str,
     api_configurer: Option<ApiConfigurer>,
-    workers: &'static [WorkerDescriptor],
+    workers: &'static [WorkerDefinition],
 }
 
-impl ModuleDescriptor {
+impl ModuleDefinition {
     pub(super) const fn new(name: &'static str) -> Self {
         Self {
             name,
@@ -24,7 +24,7 @@ impl ModuleDescriptor {
         self
     }
 
-    pub(super) const fn with_workers(mut self, workers: &'static [WorkerDescriptor]) -> Self {
+    pub(super) const fn with_workers(mut self, workers: &'static [WorkerDefinition]) -> Self {
         self.workers = workers;
         self
     }
@@ -37,30 +37,36 @@ impl ModuleDescriptor {
         self.api_configurer
     }
 
-    pub(super) const fn workers(&self) -> &'static [WorkerDescriptor] {
+    pub(super) const fn workers(&self) -> &'static [WorkerDefinition] {
         self.workers
     }
 
-    pub(super) fn worker(&self, name: &str) -> Option<&WorkerDescriptor> {
+    pub(super) fn worker(&self, name: &str) -> Option<&WorkerDefinition> {
         self.workers.iter().find(|worker| worker.name() == name)
     }
 }
 
-pub(super) struct WorkerDescriptor {
+pub(super) struct WorkerDefinition {
     name: &'static str,
-    registration: fn() -> WorkerRegistration,
+    registration_factory: fn() -> WorkerRegistration,
 }
 
-impl WorkerDescriptor {
-    pub(super) const fn new(name: &'static str, registration: fn() -> WorkerRegistration) -> Self {
-        Self { name, registration }
+impl WorkerDefinition {
+    pub(super) const fn new(
+        name: &'static str,
+        registration_factory: fn() -> WorkerRegistration,
+    ) -> Self {
+        Self {
+            name,
+            registration_factory,
+        }
     }
 
     pub(super) const fn name(&self) -> &'static str {
         self.name
     }
 
-    pub(super) fn registration(&self) -> WorkerRegistration {
-        (self.registration)()
+    pub(super) fn build_registration(&self) -> WorkerRegistration {
+        (self.registration_factory)()
     }
 }

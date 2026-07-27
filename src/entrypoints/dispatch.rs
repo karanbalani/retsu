@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use crate::{
     cli::{Cli, Command, WorkerCommand},
     configuration::AppConfiguration,
-    modules::{self, SelectedWorker, WorkerSelectionError},
+    modules::{self, ResolvedWorker, WorkerResolutionError},
     observability::Metrics,
 };
 
@@ -19,7 +19,7 @@ pub(crate) struct RuntimeEntrypoint {
 
 enum RuntimeProcess {
     Api,
-    Worker(SelectedWorker),
+    Worker(ResolvedWorker),
     Migrate,
 }
 
@@ -61,7 +61,7 @@ impl RuntimeEntrypoint {
     }
 }
 
-pub(crate) fn prepare(cli: Cli) -> Result<PreparedEntrypoint, WorkerSelectionError> {
+pub(crate) fn prepare(cli: Cli) -> Result<PreparedEntrypoint, WorkerResolutionError> {
     let Cli { config, command } = cli;
 
     match command {
@@ -86,7 +86,7 @@ pub(crate) fn prepare(cli: Cli) -> Result<PreparedEntrypoint, WorkerSelectionErr
         Command::Worker {
             command: WorkerCommand::Run { module, name },
         } => {
-            let worker = modules::select_worker(&module, &name)?;
+            let worker = modules::resolve_worker(&module, &name)?;
 
             Ok(PreparedEntrypoint::Runtime(RuntimeEntrypoint {
                 config_path: config,
@@ -96,7 +96,7 @@ pub(crate) fn prepare(cli: Cli) -> Result<PreparedEntrypoint, WorkerSelectionErr
     }
 }
 
-fn worker_list_output(module: Option<&str>) -> Result<String, WorkerSelectionError> {
+fn worker_list_output(module: Option<&str>) -> Result<String, WorkerResolutionError> {
     let names = match module {
         None => modules::worker_module_names().collect::<Vec<_>>(),
 

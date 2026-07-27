@@ -7,7 +7,7 @@ mod worker;
 use actix_web::web;
 use sqlx::PgPool;
 
-use super::registration::{ModuleDescriptor, WorkerDescriptor};
+use super::definition::{ModuleDefinition, WorkerDefinition};
 
 use application::{
     AcknowledgeMessageCommand, AcknowledgeMessageError, CreateQueueCommand, CreateQueueError,
@@ -20,9 +20,9 @@ use infrastructure::PostgresQueueRepository;
 
 use crate::observability::{DatabaseMetrics, QueueMetrics};
 
-const WORKERS: &[WorkerDescriptor] = &[WorkerDescriptor::new(worker::NAME, worker::registration)];
+const WORKERS: &[WorkerDefinition] = &[WorkerDefinition::new(worker::NAME, worker::registration)];
 
-pub(super) const DESCRIPTOR: ModuleDescriptor = ModuleDescriptor::new("queue")
+pub(super) const DEFINITION: ModuleDefinition = ModuleDefinition::new("queue")
     .with_api(configure_api)
     .with_workers(WORKERS);
 
