@@ -101,6 +101,9 @@ RETSU_WORKER__MANAGEMENT__PORT=24251 \
   just worker-observed queue state-metrics-collector
 ```
 
+See [queue state collector leadership](../../docs/queue-state-collector-leadership.md)
+to run active and standby collector processes.
+
 Inspect running and stopped services:
 
 ```bash

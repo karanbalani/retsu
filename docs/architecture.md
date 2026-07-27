@@ -1,13 +1,10 @@
 # Architecture
 
-This page shows how the current parts of Retsu fit together. It describes the
-code on `main`, not planned features.
+This page shows how the current parts of Retsu fit together. It describes the code on `main`, not planned features.
 
 ## Running parts
 
-Retsu is one program that can run as an API, one named worker, or a database
-migration. The API and each worker run as separate processes. They load the same
-configuration, create their own database connections, and use the queue module.
+Retsu is one program that can run as an API, one named worker, or a database migration. The API and each worker run as separate processes. They load the same configuration, create their own database connections, and use the queue module.
 
 ```mermaid
 flowchart LR
@@ -26,18 +23,11 @@ flowchart LR
     State -. "sends traces when enabled" .-> Collector
 ```
 
-The queue module is part of each process, not a separate service. It holds the
-queue rules and the PostgreSQL operations used by the API and workers.
+The queue module is part of each process, not a separate service. It holds the queue rules and the PostgreSQL operations used by the API and workers.
 
-The API receives health and queue requests. A worker process runs one selected
-background job. The visibility timeout worker handles returned messages whose
-timeout has ended. The expired message cleaner removes messages whose lifetime
-has ended. The state metrics collector refreshes queue counts and message ages
-from PostgreSQL every 15 seconds. Each worker process also serves its own health
-and metrics endpoints.
+The API receives health and queue requests. A worker process runs one selected background job. The visibility timeout worker handles returned messages whose timeout has ended. The expired message cleaner removes messages whose lifetime has ended. State metrics collector replicas compete for a PostgreSQL leadership lock. One active collector refreshes queue counts and message ages every 15 seconds while the others wait to take over. Each worker process also serves its own health and metrics endpoints.
 
-Prometheus reads measurements from the API and workers. When trace export is
-enabled, they send activity details to the trace collector.
+Prometheus reads measurements from the API and workers. When trace export is enabled, they send activity details to the trace collector.
 
 Starting one queue worker does not start the API or any other worker.
 
@@ -53,12 +43,9 @@ Starting one queue worker does not start the API or any other worker.
 | `just worker queue state-metrics-collector` | Starts the queue state metrics collector |
 | `just migrate` | Applies pending database changes |
 
-An application module groups one feature's API routes, rules, database work, and
-workers. The queue module is the only application module today.
+An application module groups one feature's API routes, rules, database work, and workers. The queue module is the only application module today.
 
-Each worker starts a health and metrics server on the configured management
-port. Give workers different ports when running more than one on the same
-computer.
+Each worker starts a health and metrics server on the configured management port. Give workers different ports when running more than one on the same computer.
 
 ## Message lifecycle
 
@@ -75,21 +62,11 @@ flowchart TD
     Limit -->|"Yes"| Stored["Removed from the active queue<br/>and stored separately"]
 ```
 
-Returning a message creates a receipt handle and increases its delivery attempt
-count. Completing it with the current receipt handle removes it. If its
-visibility timeout ends first, the queue worker either makes it available again
-or stores it separately when the attempt limit has been reached.
+Returning a message creates a receipt handle and increases its delivery attempt count. Completing it with the current receipt handle removes it. If its visibility timeout ends first, the queue worker either makes it available again or stores it separately when the attempt limit has been reached.
 
-The expired message cleaner removes an expired waiting message. If a returned
-message expires, the cleaner waits for its visibility timeout to end before
-removing it.
+The expired message cleaner removes an expired waiting message. If a returned message expires, the cleaner waits for its visibility timeout to end before removing it.
 
-See [Queues and messages](queues.md) for the requests, responses, and settings
-used in this flow. See the [Codebase guide](codebase-guide.md) to understand the
-dependency setup and module boundaries. See
-[Local services](../infra/local/README.md) for the database and monitoring
-tools. See [Queue state metrics design](queue-state-metrics-design.md) for how
-the collector builds and publishes queue measurements.
+See [Queues and messages](queues.md) for the requests, responses, and settings used in this flow. See the [Codebase guide](codebase-guide.md) to understand the dependency setup and module boundaries. See [Local services](../infra/local/README.md) for the database and monitoring tools. The queue metrics guides explain [state rollups](queue-state-rollups.md), [metric cardinality](queue-metric-cardinality.md), and [collector leadership](queue-state-collector-leadership.md).
 
 ## Where the code lives
 

@@ -84,8 +84,8 @@ RETSU_WORKER__MANAGEMENT__PORT=24250 \
 
 The cleaner removes messages after their lifetime ends.
 
-Run one state metrics collector in another terminal. Give it another management
-port:
+Start a state metrics collector in another terminal. One collector is enough
+for local development. Give it another management port:
 
 ```bash
 RETSU_WORKER__MANAGEMENT__PORT=24251 \
@@ -93,6 +93,8 @@ RETSU_WORKER__MANAGEMENT__PORT=24251 \
 ```
 
 It refreshes queue counts and message ages for Prometheus every 15 seconds.
+Deployments may run standby collectors for failover; PostgreSQL keeps only one
+active. See [queue state collector leadership](queue-state-collector-leadership.md).
 
 Run `just` without arguments to see all available commands:
 
