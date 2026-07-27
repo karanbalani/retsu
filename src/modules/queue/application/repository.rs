@@ -171,6 +171,64 @@ impl ExpiredMessagesCleanupSummary {
     }
 }
 
+#[derive(Debug)]
+pub(in crate::modules::queue) struct QueuePriorityStateSnapshot {
+    queue_name: String,
+    priority: MessagePriority,
+    ready: u64,
+    in_flight: u64,
+    oldest_ready_age_seconds: f64,
+    oldest_in_flight_age_seconds: f64,
+}
+
+impl QueuePriorityStateSnapshot {
+    pub(in crate::modules::queue) fn new(
+        queue_name: String,
+        priority: MessagePriority,
+        ready: u64,
+        in_flight: u64,
+        oldest_ready_age_seconds: f64,
+        oldest_in_flight_age_seconds: f64,
+    ) -> Self {
+        Self {
+            queue_name,
+            priority,
+            ready,
+            in_flight,
+            oldest_ready_age_seconds,
+            oldest_in_flight_age_seconds,
+        }
+    }
+
+    pub(in crate::modules::queue) fn queue_name(&self) -> &str {
+        &self.queue_name
+    }
+
+    pub(in crate::modules::queue) fn priority(&self) -> MessagePriority {
+        self.priority
+    }
+
+    pub(in crate::modules::queue) fn ready(&self) -> u64 {
+        self.ready
+    }
+
+    pub(in crate::modules::queue) fn in_flight(&self) -> u64 {
+        self.in_flight
+    }
+
+    pub(in crate::modules::queue) fn oldest_ready_age_seconds(&self) -> f64 {
+        self.oldest_ready_age_seconds
+    }
+
+    pub(in crate::modules::queue) fn oldest_in_flight_age_seconds(&self) -> f64 {
+        self.oldest_in_flight_age_seconds
+    }
+}
+
+pub(in crate::modules::queue) trait QueueStateRepository {
+    async fn queue_state(&self) -> Result<Vec<QueuePriorityStateSnapshot>, anyhow::Error>;
+}
+
 pub(in crate::modules::queue) trait QueueRepository {
     async fn create_queue(&self, queue: &Queue) -> Result<CreateQueueOutcome, anyhow::Error>;
 }

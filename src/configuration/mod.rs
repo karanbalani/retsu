@@ -128,6 +128,7 @@ logging:
 
         assert_eq!(configuration.environment, Environment::Local);
         assert_eq!(configuration.http.port, 2424);
+        assert_eq!(configuration.telemetry.metrics.max_queues, 10_000);
         assert_eq!(configuration.database.max_connections, 10);
         assert_eq!(configuration.worker.shutdown_timeout_seconds, 30);
     }

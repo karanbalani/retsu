@@ -13,7 +13,8 @@ pub(in crate::modules::queue) use create_queue::{
 pub(in crate::modules::queue) use repository::{
     AcknowledgeMessageOutcome, CreateQueueOutcome, DequeueMessageOutcome, EnqueueMessageOutcome,
     ExpiredMessagesCleanupSummary, MessageRepository, QueueExpiredMessagesCleanupSummary,
-    QueueRepository, QueueTimeoutProcessingSummary, TimeoutProcessingSummary,
+    QueuePriorityStateSnapshot, QueueRepository, QueueStateRepository,
+    QueueTimeoutProcessingSummary, TimeoutProcessingSummary,
 };
 
 pub(in crate::modules::queue) use dequeue_message::{
