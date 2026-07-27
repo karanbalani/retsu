@@ -20,7 +20,8 @@ A successful request returns status `201` and the new queue:
   "id": "019c9a65-7d3a-7c6b-8a9d-123456789abc",
   "name": "emails",
   "visibility_timeout_seconds": 30,
-  "max_delivery_attempts": 5
+  "max_delivery_attempts": 5,
+  "default_message_ttl_seconds": 604800
 }
 ```
 
@@ -30,13 +31,15 @@ The `id` will be different for every queue.
 
 The visibility timeout controls how long a returned message can be completed.
 The worker makes timed-out messages available again until the delivery attempt
-limit is reached. Messages that reach the limit are stored separately.
+limit is reached. Messages that reach the limit are stored separately. The
+default message lifetime controls when messages expire.
 
 | Field | What it controls | Accepted value | Default |
 | --- | --- | --- | --- |
 | `name` | How the queue is identified | 1–64 lowercase letters, numbers, dots, underscores, or hyphens | Required |
 | `visibility_timeout_seconds` | Seconds before an unfinished message can be tried again | 1–21,600 seconds | 30 |
 | `max_delivery_attempts` | Times a message can be tried | 1–100 | 5 |
+| `default_message_ttl_seconds` | Seconds before a message expires | 1–2,592,000 seconds | 604,800 (7 days) |
 
 A name must start and end with a letter or number.
 
@@ -48,7 +51,8 @@ curl --request POST http://127.0.0.1:2424/v1/queues \
   --data '{
     "name": "emails",
     "visibility_timeout_seconds": 60,
-    "max_delivery_attempts": 10
+    "max_delivery_attempts": 10,
+    "default_message_ttl_seconds": 86400
   }'
 ```
 
@@ -58,6 +62,8 @@ curl --request POST http://127.0.0.1:2424/v1/queues \
 - `400` and `invalid_visibility_timeout`: the value is outside the allowed
   range.
 - `400` and `invalid_max_delivery_attempts`: the value is outside the allowed
+  range.
+- `400` and `invalid_default_message_ttl`: the value is outside the allowed
   range.
 - `409` and `queue_already_exists`: another queue already uses the same name.
 
@@ -91,12 +97,12 @@ The `id` will be different for every message.
 | --- | --- | --- | --- |
 | `payload` | The content to save | Text | Required |
 | `priority` | The message priority | `HIGH`, `MEDIUM`, or `LOW` | Required |
-| `ttl_seconds` | Seconds until the message expires | Any whole number greater than 0 | The message does not expire |
+| `ttl_seconds` | Seconds until the message expires | 1–2,592,000 seconds | The queue's `default_message_ttl_seconds` |
 
 ### Message errors
 
 - `400` and `invalid_priority`: the priority is not `HIGH`, `MEDIUM`, or `LOW`.
-- `400` and `invalid_ttl`: `ttl_seconds` is `0`.
+- `400` and `invalid_ttl`: `ttl_seconds` is outside the accepted range.
 - `404` and `queue_not_found`: the queue does not exist.
 
 ## Get the next message
@@ -168,7 +174,7 @@ removed and will not be returned again.
 Run the worker alongside the API:
 
 ```bash
-just worker
+just worker queue visibility-timeout-processor
 ```
 
 If a returned message is not completed before its visibility timeout, the
@@ -180,3 +186,27 @@ old receipt handle will no longer work.
 When a message reaches the delivery attempt limit without being completed,
 Retsu removes it from the active queue and stores it separately. There is no
 API to view or restore these messages yet.
+
+## Remove expired messages
+
+Messages use their own `ttl_seconds` value when provided. Otherwise, they use
+the queue's `default_message_ttl_seconds` setting. Retsu stops returning a
+message as soon as its lifetime ends.
+
+Run the expired message cleaner as a separate process:
+
+```bash
+just worker queue expired-message-cleaner
+```
+
+The cleaner permanently removes expired waiting messages. If a returned message
+expires, the cleaner waits for its visibility timeout to end before removing
+it.
+
+When the visibility timeout worker is already running on the same computer,
+give the cleaner a different management port:
+
+```bash
+RETSU_WORKER__MANAGEMENT__PORT=24250 \
+  just worker queue expired-message-cleaner
+```
