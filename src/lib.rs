@@ -27,11 +27,18 @@ pub async fn run() -> anyhow::Result<()> {
 
     let process_span = tracing::info_span!(
         "application",
-        service_name = env!("CARGO_PKG_NAME"),
-        service_version = env!("CARGO_PKG_VERSION"),
-        environment = %configuration.environment,
-        process_mode
+            service_name = env!("CARGO_PKG_NAME"),
+            service_version = env!("CARGO_PKG_VERSION"),
+            environment = %configuration.environment,
+            process_mode,
+            worker.module = tracing::field::Empty,
+            worker.name = tracing::field::Empty
     );
+
+    if let Some((module, name)) = cli.command.worker_selection() {
+        process_span.record("worker.module", module);
+        process_span.record("worker.name", name);
+    }
 
     let result = async move {
         tracing::info!("process mode started");
@@ -39,7 +46,9 @@ pub async fn run() -> anyhow::Result<()> {
         let result = match cli.command {
             cli::Command::Api => entrypoints::api::run(configuration, metrics).await,
 
-            cli::Command::Worker => entrypoints::worker::run(configuration, metrics).await,
+            cli::Command::Worker { module, name } => {
+                entrypoints::worker::run(configuration, metrics, module, name).await
+            }
 
             cli::Command::Migrate => entrypoints::migrate::run(configuration).await,
         };

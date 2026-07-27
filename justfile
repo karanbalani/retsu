@@ -138,13 +138,18 @@ api config="config/retsu.yaml":
 api-observed config="config/retsu.yaml":
     RETSU_TELEMETRY__TRACES__ENABLED=true cargo run --locked -- --config "{{ config }}" api
 
-# Run background workers.
-worker config="config/retsu.yaml":
-    cargo run --locked -- --config "{{ config }}" worker
+# Run one named background worker.
+worker module name config="config/retsu.yaml":
+    cargo run --locked -- \
+        --config "{{ config }}" \
+        worker "{{ module }}" "{{ name }}"
 
-# Run workers with trace export enabled.
-worker-observed config="config/retsu.yaml":
-    RETSU_TELEMETRY__TRACES__ENABLED=true cargo run --locked -- --config "{{ config }}" worker
+# Run one named background worker with trace export enabled.
+worker-observed module name config="config/retsu.yaml":
+    RETSU_TELEMETRY__TRACES__ENABLED=true \
+        cargo run --locked -- \
+        --config "{{ config }}" \
+        worker "{{ module }}" "{{ name }}"
 
 # Install the SQLx CLI version matching the project.
 sqlx-install:

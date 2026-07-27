@@ -21,6 +21,14 @@ use crate::{
     worker::WorkerRegistration,
 };
 
+pub(super) const WORKER_MODULE: &str = "queue";
+
+const WORKER_NAMES: &[&str] = &[worker::NAME];
+
+pub(super) fn worker_names() -> &'static [&'static str] {
+    WORKER_NAMES
+}
+
 #[derive(Clone)]
 pub(crate) struct QueueModule {
     repository: PostgresQueueRepository,
@@ -100,6 +108,9 @@ pub(super) fn configure_api(configuration: &mut web::ServiceConfig) {
     api::configure(configuration);
 }
 
-pub(super) fn worker_registration() -> WorkerRegistration {
-    worker::registration()
+pub(super) fn worker_registration(name: &str) -> Option<WorkerRegistration> {
+    match name {
+        worker::NAME => Some(worker::registration()),
+        _ => None,
+    }
 }
