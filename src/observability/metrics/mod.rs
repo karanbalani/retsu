@@ -7,7 +7,11 @@ mod queue_state;
 mod visibility_timeout;
 
 use opentelemetry::metrics::MeterProvider;
-use opentelemetry_sdk::{Resource, error::OTelSdkError, metrics::SdkMeterProvider};
+use opentelemetry_sdk::{
+    Resource,
+    error::OTelSdkError,
+    metrics::{Instrument, SdkMeterProvider, Stream},
+};
 use prometheus::{Encoder, Registry, TextEncoder};
 
 pub(crate) use database::DatabaseMetrics;
@@ -50,16 +54,49 @@ impl Metrics {
     }
 }
 
-pub(super) fn initialize(resource: Resource) -> Result<(SdkMeterProvider, Metrics), OTelSdkError> {
+pub(super) fn initialize(
+    resource: Resource,
+    max_queues: u32,
+) -> Result<(SdkMeterProvider, Metrics), OTelSdkError> {
     let registry = Registry::new();
 
     let exporter = opentelemetry_prometheus::exporter()
         .with_registry(registry.clone())
         .build()?;
 
+    let max_queues = usize::try_from(max_queues).expect("u32 queue limit should fit into usize");
+
     let provider = SdkMeterProvider::builder()
         .with_resource(resource)
         .with_reader(exporter)
+        .with_view(move |instrument: &Instrument| {
+            let multiplier = match instrument.name() {
+                "queue.messages.enqueued"
+                | "queue.messages.ready"
+                | "queue.messages.in_flight"
+                | "queue.oldest_ready_message.age"
+                | "queue.oldest_in_flight_message.age" => 3,
+
+                "queue.messages.expired" => 2,
+
+                "queue.messages.acknowledged"
+                | "queue.messages.requeued"
+                | "queue.messages.dead_lettered" => 1,
+
+                _ => return None,
+            };
+
+            let cardinality_limit = max_queues
+                .checked_mul(multiplier)
+                .expect("validated queue metric cardinality should fit into usize");
+
+            Some(
+                Stream::builder()
+                    .with_cardinality_limit(cardinality_limit)
+                    .build()
+                    .expect("validated queue metric stream should build"),
+            )
+        })
         .build();
 
     let meter = provider.meter(env!("CARGO_PKG_NAME"));
@@ -77,7 +114,7 @@ pub(super) fn initialize(resource: Resource) -> Result<(SdkMeterProvider, Metric
 
 #[cfg(test)]
 pub(crate) fn test_metrics() -> (SdkMeterProvider, Metrics) {
-    initialize(Resource::builder_empty().build()).expect("test metrics should initialize")
+    initialize(Resource::builder_empty().build(), 10_000).expect("test metrics should initialize")
 }
 
 #[cfg(test)]

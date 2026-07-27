@@ -6,10 +6,10 @@ without making every API instance repeatedly scan the database.
 It records both the design and the reasoning behind it. The final section lists
 the few choices that still need to be agreed before implementation.
 
-**Status:** the feature branch contains the first working collector. The
-sharded database counters, collector leadership lock, and metric label budget
-described here are the proposed changes needed before treating it as the
-scalable design.
+**Status:** this feature assumes exactly one state collector is deployed. It
+adds the sharded database counters and metric label budget described here.
+Automatic leadership between multiple collector replicas is deliberately
+deferred to a separate feature.
 
 If you only need the main idea, read **The short version**, **Metric
 ownership**, **Chosen state design**, and **Decisions for the final
@@ -329,10 +329,16 @@ The shard count is a trade-off:
 Thirty-two is a reasonable starting point, but it should be confirmed with a
 write-load test.
 
-### Database trigger
+### Database triggers
 
-A PostgreSQL trigger updates the sharded counter in the same transaction that
+Three PostgreSQL triggers cover message inserts, updates, and deletes. They use
+one shared function to update the sharded counters in the same transaction that
 changes a message.
+
+The triggers work on all rows changed by one SQL statement as a group. Before
+touching the counter table, they combine changes for the same shard. A timeout
+batch that changes many messages therefore performs at most one adjustment per
+affected shard instead of one counter update per message.
 
 | Message change | Ready count | In-flight count |
 | --- | ---: | ---: |
@@ -344,8 +350,7 @@ changes a message.
 | Remove an expired ready message | -1 | 0 |
 | Remove an expired in-flight message | 0 | -1 |
 
-The trigger handles inserts, deletes, and changes to message state, priority,
-queue, or ID.
+Together, the triggers handle changes to message state, priority, queue, or ID.
 
 Why put this in PostgreSQL instead of repeating counter updates in Rust?
 
@@ -422,53 +427,24 @@ If a queue and priority have no matching message, the count is zero and the age
 is exported as zero. Consumers of the metric should check the count before
 giving an age value meaning.
 
-## Only one active state collector
+## One collector is a deployment rule
 
-There is one **type** of state collector worker. We do not need two different
-workers to collect the same state.
+There is one state-collector worker type, and this feature assumes exactly one
+instance of it is running.
 
-Deployment can run one collector process. However, deployments are sometimes
-misconfigured, restarted with overlap, or scaled automatically. The database
-should ensure only one replica is active.
+No advisory lock or leader-election code is included in this design. That keeps
+the collector loop simple: wake every 15 seconds, read state, and replace the
+cached snapshot.
 
-Use a PostgreSQL advisory lock as a small distributed mutex:
+Running two collectors would not corrupt queue data or the rollup counters.
+Both would only read PostgreSQL. It would, however, duplicate database work and
+export two independent copies of the state gauges, which can make monitoring
+queries misleading.
 
-1. A collector gets a dedicated database connection.
-2. It calls `pg_try_advisory_lock` with a stable lock key.
-3. The winner keeps that exact connection and performs refreshes through it.
-4. Other replicas wait and periodically try again.
-5. If the leader dies, PostgreSQL closes its connection and releases the lock.
-6. A waiting replica can then become the leader.
-
-```mermaid
-sequenceDiagram
-    participant A as Collector A
-    participant DB as PostgreSQL
-    participant B as Collector B
-
-    A->>DB: Try advisory lock
-    DB-->>A: Acquired
-    B->>DB: Try advisory lock
-    DB-->>B: Not acquired
-    loop Every 15 seconds
-        A->>DB: Refresh queue state
-        B->>DB: Retry lock only
-    end
-    Note over A,DB: A stops or its connection dies
-    DB-->>DB: Lock is released
-    B->>DB: Try advisory lock
-    DB-->>B: Acquired
-```
-
-The lock belongs to the database session, not merely the Rust object. The
-collector must retain the same pool connection while it is leader. When that
-object is dropped, the connection should be closed rather than returned to the
-pool with an advisory lock still attached.
-
-The state query should use this leased connection, not acquire an unrelated
-connection from the pool. The query itself then proves that the locked session
-is alive and prevents an old leader from continuing to refresh after another
-collector has acquired the lock.
+For now, deployment configuration must keep the collector replica count at
+one. If automatic failover or horizontal scaling is needed later, a separate
+feature can add PostgreSQL advisory-lock leadership without changing the
+rollup-table design.
 
 ## Why the in-memory cache uses `Arc<RwLock<...>>`
 
@@ -492,8 +468,8 @@ A normal async mutex is not suitable because OpenTelemetry's callback cannot
 read a vector or replace a vector. Database work happens before taking the
 write lock.
 
-The lock is not used to make the collector a cluster-wide singleton. The
-PostgreSQL advisory lock has that separate job.
+The lock is not used to make the collector a cluster-wide singleton. This
+feature relies on the one-replica deployment rule for that.
 
 The surrounding queue instrumentation only needs one shared `Arc` around its
 inner set of lazily created instruments. It does not need a separate `Arc` for
@@ -539,6 +515,12 @@ explicit setting, a three-priority metric begins overflowing at roughly 667
 queues. Extra label combinations may be combined into an overflow series,
 making per-queue dashboards misleading.
 
+This limit is inside the Rust OpenTelemetry SDK. In the current architecture,
+Prometheus scrapes Retsu's `/metrics` endpoint directly, and the OpenTelemetry
+Collector handles traces only. Once the SDK combines queue labels into an
+overflow series, no downstream Prometheus or Collector setting can recover
+them.
+
 Add a setting such as:
 
 ```yaml
@@ -547,14 +529,17 @@ telemetry:
     max_queues: 10000
 ```
 
-The OpenTelemetry view for queue-and-priority instruments should then allow at
-least:
+The OpenTelemetry view gives each queue-labelled instrument a limit based on
+its fixed label combinations:
 
 ```text
-max_queues × 3
+queue + priority          -> max_queues × 3
+queue + delivery history -> max_queues × 2
+queue only               -> max_queues
 ```
 
-For 10,000 queues, that is 30,000 series per such instrument.
+For 10,000 queues, that is 30,000 series for each queue-and-priority
+instrument.
 
 This is a capacity decision, not a free safety switch. More series require more
 memory in Retsu and in the monitoring system. The configuration should have a
@@ -623,8 +608,9 @@ The collector:
 
 ### The active collector dies
 
-Its dedicated database connection closes and PostgreSQL releases the advisory
-lock. A waiting collector can become active.
+State metrics stop refreshing until the deployment restarts the collector.
+Queue operations and transactional rollup updates continue normally. Process
+health monitoring should alert on the missing collector target.
 
 ### An expiry or timeout worker falls behind
 
@@ -698,7 +684,7 @@ The migration should:
 1. create `queue_priority_state_shard`;
 2. add non-negative count and shard-range constraints;
 3. add the function that adjusts one deterministic shard;
-4. add the message-table trigger;
+4. add the message-table triggers;
 5. backfill the projection from existing messages;
 6. add expiry and visibility-deadline indexes;
 7. add partial oldest-ready and oldest-in-flight indexes.
@@ -715,38 +701,24 @@ Replace the full `COUNT`/`MIN` state query with:
 - subtraction of overdue ready and in-flight rows;
 - indexed `LATERAL` lookups for the oldest eligible rows.
 
-Also add state-collector lease operations:
-
-- try to acquire the advisory lock on a dedicated connection;
-- run state refreshes through that same connection while leadership is held;
-- close the locked connection when the lease is dropped.
-
 The existing enqueue, dequeue, acknowledge, timeout, dead-letter, and expiry
 queries do not need manual counter updates because the trigger covers them.
 
 ### `src/modules/queue/application/repository.rs`
 
-Expose the state snapshot read and the state-collector lease through an
-internal repository boundary. Keep these details inside the queue module; API
-handlers should not see them.
+Expose the state snapshot read through an internal repository boundary. Keep
+these details inside the queue module; API handlers should not see them.
 
 ### `src/modules/queue/mod.rs`
 
-Keep translating repository snapshots into observability values here. Add the
-small internal method the worker needs to acquire its collector lease.
+Keep translating repository snapshots into observability values here.
 
 Command and lifecycle event metrics stay at this application boundary.
 
 ### `src/modules/queue/worker/state_metrics_collector.rs`
 
-Change the worker loop to:
-
-1. try to acquire leadership;
-2. wait and retry when another collector is active;
-3. while leader, refresh through the leased connection every 15 seconds;
-4. release leadership by dropping and closing the dedicated connection.
-
-There remains only one state-collector worker type.
+Keep the existing worker loop: refresh immediately, then every 15 seconds until
+shutdown. Deployment must run exactly one instance of this worker.
 
 ### `src/observability/metrics/queue_state.rs`
 
@@ -765,7 +737,7 @@ This ensures each process exports only the metrics it owns.
 
 Add a validated queue-cardinality budget to the telemetry configuration and
 pass it into metrics initialisation. Configure OpenTelemetry views for
-`queue.*` instruments with the required cardinality limit.
+queue-labelled instruments with the required cardinality limits.
 
 ### Tests to add with implementation
 
@@ -777,8 +749,6 @@ The implementation should eventually cover:
 - ready expiry and in-flight timeout are removed from logical counts before
   their workers update the physical rows;
 - oldest-row queries skip expired or timed-out candidates;
-- only one collector holds the advisory lock;
-- another collector takes over after the leader disconnects;
 - a scrape reads cached state without a database call;
 - a failed refresh retains the last good snapshot;
 - configured metric cardinality supports the expected queue count.
@@ -796,12 +766,12 @@ The current feature work established several boundaries that should remain:
 - queue instrumentation shares one inner `Arc` instead of wrapping every lazy
   metric group in another `Arc`.
 
-The remaining scalability work is the database projection, singleton lease,
-and explicit metric-cardinality budget.
+This PR adds the database projection and explicit metric-cardinality budget.
+Multi-collector leadership is a separate feature.
 
 ## Decisions for the final implementation discussion
 
-Before coding the scalable version, agree on these points:
+Before finalising the scalable version, agree on these points:
 
 1. **Oldest in-flight age:** time since original enqueue, or time since the
    current delivery began? This document assumes original enqueue time.
@@ -810,10 +780,7 @@ Before coding the scalable version, agree on these points:
 3. **Queue budget:** is 10,000 queues the right initial supported maximum for
    metric labels?
 4. **Refresh interval:** keep 15 seconds, or make it configurable?
-5. **Standby behaviour:** run one configured collector replica with the
-   advisory lock as protection, or deliberately run a standby for faster
-   failover?
-6. **Repair tooling:** include a projection rebuild command in this feature, or
+5. **Repair tooling:** include a projection rebuild command in this feature, or
    document and build it as a follow-up?
 
 Once these are settled, the implementation can proceed without revisiting the

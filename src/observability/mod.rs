@@ -64,7 +64,8 @@ pub(crate) fn initialize(
     let tracer_provider = build_tracer_provider(configuration, resource.clone())?;
 
     let (meter_provider, metrics) =
-        metrics::initialize(resource).map_err(ObservabilityError::MetricsExporter)?;
+        metrics::initialize(resource, configuration.telemetry.metrics.max_queues)
+            .map_err(ObservabilityError::MetricsExporter)?;
 
     install_subscriber(configuration, tracer_provider.as_ref())?;
 

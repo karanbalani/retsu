@@ -9,6 +9,8 @@ logging:
   format: pretty
 
 telemetry:
+  metrics:
+    max_queues: 10000
   traces:
     enabled: false
     filter: info

@@ -87,7 +87,17 @@ pub(crate) enum LogFormat {
 #[serde(default, deny_unknown_fields)]
 pub(crate) struct TelemetryConfig {
     #[validate(nested)]
+    pub(crate) metrics: MetricsConfig,
+
+    #[validate(nested)]
     pub(crate) traces: TraceExportConfig,
+}
+
+#[derive(Deserialize, Validate)]
+#[serde(default, deny_unknown_fields)]
+pub(crate) struct MetricsConfig {
+    #[validate(range(min = 1, max = 100_000))]
+    pub(crate) max_queues: u32,
 }
 
 #[derive(Deserialize, Validate)]
@@ -169,6 +179,7 @@ mod tests {
     fn accepts_all_validation_boundaries() {
         let mut configuration = AppConfiguration::default();
         configuration.http.port = 1;
+        configuration.telemetry.metrics.max_queues = 1;
         configuration.telemetry.traces.timeout_seconds = 1;
         configuration.database.max_connections = 1;
         configuration.database.acquire_timeout_seconds = 5;
@@ -179,6 +190,7 @@ mod tests {
             .validate()
             .expect("minimum boundaries should be valid");
 
+        configuration.telemetry.metrics.max_queues = 100_000;
         configuration.telemetry.traces.timeout_seconds = 60;
         configuration.database.acquire_timeout_seconds = 60;
         configuration.worker.shutdown_timeout_seconds = 300;
@@ -192,6 +204,8 @@ mod tests {
     fn rejects_values_outside_the_validation_contract() {
         assert_invalid(|configuration| configuration.http.port = 0);
         assert_invalid(|configuration| configuration.logging.filter.clear());
+        assert_invalid(|configuration| configuration.telemetry.metrics.max_queues = 0);
+        assert_invalid(|configuration| configuration.telemetry.metrics.max_queues = 100_001);
         assert_invalid(|configuration| configuration.telemetry.traces.filter.clear());
         assert_invalid(|configuration| {
             configuration.telemetry.traces.endpoint = "not a URL".to_owned();

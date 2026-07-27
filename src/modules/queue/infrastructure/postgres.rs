@@ -698,35 +698,37 @@ impl QueueStateRepository for PostgresQueueRepository {
                     (2::SMALLINT),
                     (1::SMALLINT)
             ),
-            state_by_priority AS (
+            physical_state AS (
+                SELECT
+                    state.queue_id,
+                    state.priority,
+                    SUM(state.ready_count)::BIGINT AS ready,
+                    SUM(state.in_flight_count)::BIGINT AS in_flight
+                FROM queue_priority_state_shard AS state
+                GROUP BY
+                    state.queue_id,
+                    state.priority
+            ),
+            expired_ready AS (
                 SELECT
                     message.queue_id,
                     message.priority,
-                    COUNT(*) FILTER (
-                        WHERE message.state = 'READY'
-                          AND message.expires_at > CURRENT_TIMESTAMP
-                    ) AS ready,
-                    COUNT(*) FILTER (
-                        WHERE message.state = 'IN_FLIGHT'
-                          AND message.visibility_deadline > CURRENT_TIMESTAMP
-                    ) AS in_flight,
-                    MIN(message.enqueued_at) FILTER (
-                        WHERE message.state = 'READY'
-                          AND message.expires_at > CURRENT_TIMESTAMP
-                    ) AS oldest_ready_enqueued_at,
-                    MIN(message.enqueued_at) FILTER (
-                        WHERE message.state = 'IN_FLIGHT'
-                          AND message.visibility_deadline > CURRENT_TIMESTAMP
-                    ) AS oldest_in_flight_enqueued_at
+                    COUNT(*) AS count
                 FROM queue_message AS message
-                WHERE (
-                    message.state = 'READY'
-                    AND message.expires_at > CURRENT_TIMESTAMP
-                )
-                OR (
-                    message.state = 'IN_FLIGHT'
-                    AND message.visibility_deadline > CURRENT_TIMESTAMP
-                )
+                WHERE message.state = 'READY'
+                  AND message.expires_at <= CURRENT_TIMESTAMP
+                GROUP BY
+                    message.queue_id,
+                    message.priority
+            ),
+            timed_out_in_flight AS (
+                SELECT
+                    message.queue_id,
+                    message.priority,
+                    COUNT(*) AS count
+                FROM queue_message AS message
+                WHERE message.state = 'IN_FLIGHT'
+                  AND message.visibility_deadline <= CURRENT_TIMESTAMP
                 GROUP BY
                     message.queue_id,
                     message.priority
@@ -735,18 +737,24 @@ impl QueueStateRepository for PostgresQueueRepository {
                 queue.name AS queue_name,
                 priorities.priority,
                 COALESCE(
-                    state_by_priority.ready,
+                    physical_state.ready,
+                    0
+                ) - COALESCE(
+                    expired_ready.count,
                     0
                 ) AS ready,
                 COALESCE(
-                    state_by_priority.in_flight,
+                    physical_state.in_flight,
+                    0
+                ) - COALESCE(
+                    timed_out_in_flight.count,
                     0
                 ) AS in_flight,
                 COALESCE(
                     EXTRACT(
                         EPOCH FROM (
                             CURRENT_TIMESTAMP
-                            - state_by_priority.oldest_ready_enqueued_at
+                            - oldest_ready.enqueued_at
                         )
                     )::DOUBLE PRECISION,
                     0.0
@@ -755,16 +763,44 @@ impl QueueStateRepository for PostgresQueueRepository {
                     EXTRACT(
                         EPOCH FROM (
                             CURRENT_TIMESTAMP
-                            - state_by_priority.oldest_in_flight_enqueued_at
+                            - oldest_in_flight.enqueued_at
                         )
                     )::DOUBLE PRECISION,
                     0.0
                 ) AS oldest_in_flight_age_seconds
             FROM queue
             CROSS JOIN priorities
-            LEFT JOIN state_by_priority
-                ON state_by_priority.queue_id = queue.id
-               AND state_by_priority.priority = priorities.priority
+            LEFT JOIN physical_state
+                ON physical_state.queue_id = queue.id
+               AND physical_state.priority = priorities.priority
+            LEFT JOIN expired_ready
+                ON expired_ready.queue_id = queue.id
+               AND expired_ready.priority = priorities.priority
+            LEFT JOIN timed_out_in_flight
+                ON timed_out_in_flight.queue_id = queue.id
+               AND timed_out_in_flight.priority = priorities.priority
+            LEFT JOIN LATERAL (
+                SELECT message.enqueued_at
+                FROM queue_message AS message
+                WHERE message.queue_id = queue.id
+                  AND message.priority = priorities.priority
+                  AND message.state = 'READY'
+                  AND message.expires_at > CURRENT_TIMESTAMP
+                ORDER BY message.enqueued_at
+                LIMIT 1
+            ) AS oldest_ready
+                ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT message.enqueued_at
+                FROM queue_message AS message
+                WHERE message.queue_id = queue.id
+                  AND message.priority = priorities.priority
+                  AND message.state = 'IN_FLIGHT'
+                  AND message.visibility_deadline > CURRENT_TIMESTAMP
+                ORDER BY message.enqueued_at
+                LIMIT 1
+            ) AS oldest_in_flight
+                ON TRUE
             ORDER BY
                 queue.name,
                 priorities.priority DESC

@@ -6,8 +6,8 @@ use std::{
 use super::{
     AppConfiguration,
     schema::{
-        DatabaseConfig, Environment, HttpConfig, LogFormat, LoggingConfig, TelemetryConfig,
-        TraceExportConfig, WorkerConfig, WorkerManagementConfig,
+        DatabaseConfig, Environment, HttpConfig, LogFormat, LoggingConfig, MetricsConfig,
+        TelemetryConfig, TraceExportConfig, WorkerConfig, WorkerManagementConfig,
     },
 };
 
@@ -49,6 +49,18 @@ impl Default for LoggingConfig {
         Self {
             filter: logging_filter(),
             format: logging_format(),
+        }
+    }
+}
+
+fn metrics_max_queues() -> u32 {
+    10_000
+}
+
+impl Default for MetricsConfig {
+    fn default() -> Self {
+        Self {
+            max_queues: metrics_max_queues(),
         }
     }
 }
@@ -171,6 +183,10 @@ mod tests {
             (from_file.logging.format, defaults.logging.format),
             (LogFormat::Pretty, LogFormat::Pretty) | (LogFormat::Json, LogFormat::Json)
         ));
+        assert_eq!(
+            from_file.telemetry.metrics.max_queues,
+            defaults.telemetry.metrics.max_queues
+        );
         assert_eq!(
             from_file.telemetry.traces.enabled,
             defaults.telemetry.traces.enabled
