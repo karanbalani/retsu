@@ -84,6 +84,16 @@ RETSU_WORKER__MANAGEMENT__PORT=24250 \
 
 The cleaner removes messages after their lifetime ends.
 
+Run one state metrics collector in another terminal. Give it another management
+port:
+
+```bash
+RETSU_WORKER__MANAGEMENT__PORT=24251 \
+  just worker queue state-metrics-collector
+```
+
+It refreshes queue counts and message ages for Prometheus every 15 seconds.
+
 Run `just` without arguments to see all available commands:
 
 ```bash
@@ -105,6 +115,8 @@ just api-observed
 just worker-observed queue visibility-timeout-processor
 RETSU_WORKER__MANAGEMENT__PORT=24250 \
   just worker-observed queue expired-message-cleaner
+RETSU_WORKER__MANAGEMENT__PORT=24251 \
+  just worker-observed queue state-metrics-collector
 ```
 
 See the [local services guide](../infra/local/README.md) for ports, logs, reset

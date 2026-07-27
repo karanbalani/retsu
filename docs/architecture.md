@@ -14,13 +14,16 @@ flowchart LR
     Client["Application using Retsu"] --> API["API process<br/>HTTP routes + queue module"]
     Timeout["Worker process<br/>visibility-timeout-processor<br/>+ queue module"] --> Database[("PostgreSQL")]
     Cleaner["Worker process<br/>expired-message-cleaner<br/>+ queue module"] --> Database
+    State["Worker process<br/>state-metrics-collector<br/>+ queue module"] --> Database
     API --> Database
     Prometheus["Prometheus"] -. "reads metrics" .-> API
     Prometheus -. "reads metrics" .-> Timeout
     Prometheus -. "reads metrics" .-> Cleaner
+    Prometheus -. "reads metrics" .-> State
     API -. "sends traces when enabled" .-> Collector["Trace collector"]
     Timeout -. "sends traces when enabled" .-> Collector
     Cleaner -. "sends traces when enabled" .-> Collector
+    State -. "sends traces when enabled" .-> Collector
 ```
 
 The queue module is part of each process, not a separate service. It holds the
@@ -29,12 +32,14 @@ queue rules and the PostgreSQL operations used by the API and workers.
 The API receives health and queue requests. A worker process runs one selected
 background job. The visibility timeout worker handles returned messages whose
 timeout has ended. The expired message cleaner removes messages whose lifetime
-has ended. Each worker process also serves its own health and metrics endpoints.
+has ended. The state metrics collector refreshes queue counts and message ages
+from PostgreSQL every 15 seconds. Each worker process also serves its own health
+and metrics endpoints.
 
 Prometheus reads measurements from the API and workers. When trace export is
 enabled, they send activity details to the trace collector.
 
-Starting one queue worker does not start the API or the other worker.
+Starting one queue worker does not start the API or any other worker.
 
 ## Start or inspect a process
 
@@ -45,6 +50,7 @@ Starting one queue worker does not start the API or the other worker.
 | `just worker-list queue` | Lists workers provided by the queue module |
 | `just worker queue visibility-timeout-processor` | Starts the queue timeout worker |
 | `just worker queue expired-message-cleaner` | Starts the expired message cleaner |
+| `just worker queue state-metrics-collector` | Starts the queue state metrics collector |
 | `just migrate` | Applies pending database changes |
 
 An application module groups one feature's API routes, rules, database work, and
@@ -82,7 +88,8 @@ See [Queues and messages](queues.md) for the requests, responses, and settings
 used in this flow. See the [Codebase guide](codebase-guide.md) to understand the
 dependency setup and module boundaries. See
 [Local services](../infra/local/README.md) for the database and monitoring
-tools.
+tools. See [Queue state metrics design](queue-state-metrics-design.md) for how
+the collector builds and publishes queue measurements.
 
 ## Where the code lives
 
@@ -90,6 +97,6 @@ tools.
 | --- | --- |
 | `src/entrypoints/` | Starts the API, a selected worker, or migrations |
 | `src/modules/` | Registers each application module's routes and workers |
-| `src/modules/queue/` | Queue rules, API handlers, PostgreSQL access, and the queue worker |
+| `src/modules/queue/` | Queue rules, API handlers, PostgreSQL access, and queue workers |
 | `src/worker/` | Runs the selected worker and its health and metrics server |
 | `migrations/` | PostgreSQL database changes |
