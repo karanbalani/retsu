@@ -90,10 +90,13 @@ Run the API and send its activity to the monitoring tools:
 just api-observed
 ```
 
-Run the queue worker and send its activity to the monitoring tools:
+Run the queue workers and send their activity to the monitoring tools. Give the
+second worker a different management port:
 
 ```bash
 just worker-observed queue visibility-timeout-processor
+RETSU_WORKER__MANAGEMENT__PORT=24250 \
+  just worker-observed queue expired-message-cleaner
 ```
 
 Inspect running and stopped services:

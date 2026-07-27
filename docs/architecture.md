@@ -11,29 +11,30 @@ configuration, create their own database connections, and use the queue module.
 
 ```mermaid
 flowchart LR
-    Client["Application using Retsu"] --> API["API process"]
-    API --> ApiQueue["Queue module"]
-    Worker["Worker process<br/>visibility-timeout-processor"] --> WorkerQueue["Queue module"]
-    ApiQueue --> Database[("PostgreSQL")]
-    WorkerQueue --> Database
+    Client["Application using Retsu"] --> API["API process<br/>HTTP routes + queue module"]
+    Timeout["Worker process<br/>visibility-timeout-processor<br/>+ queue module"] --> Database[("PostgreSQL")]
+    Cleaner["Worker process<br/>expired-message-cleaner<br/>+ queue module"] --> Database
+    API --> Database
     Prometheus["Prometheus"] -. "reads metrics" .-> API
-    Prometheus -. "reads metrics" .-> Worker
+    Prometheus -. "reads metrics" .-> Timeout
+    Prometheus -. "reads metrics" .-> Cleaner
     API -. "sends traces when enabled" .-> Collector["Trace collector"]
-    Worker -. "sends traces when enabled" .-> Collector
+    Timeout -. "sends traces when enabled" .-> Collector
+    Cleaner -. "sends traces when enabled" .-> Collector
 ```
 
 The queue module is part of each process, not a separate service. It holds the
-queue rules and the PostgreSQL operations used by the API and worker.
+queue rules and the PostgreSQL operations used by the API and workers.
 
 The API receives health and queue requests. A worker process runs one selected
-background job. The current queue worker checks returned messages whose
-visibility timeout has ended. Each worker process also serves its own health and
-metrics endpoints.
+background job. The visibility timeout worker handles returned messages whose
+timeout has ended. The expired message cleaner removes messages whose lifetime
+has ended. Each worker process also serves its own health and metrics endpoints.
 
-Prometheus reads measurements from the API and worker. When trace export is
-enabled, both send activity details to the trace collector.
+Prometheus reads measurements from the API and workers. When trace export is
+enabled, they send activity details to the trace collector.
 
-Starting the queue worker does not start the API or another application worker.
+Starting one queue worker does not start the API or the other worker.
 
 ## Start or inspect a process
 
@@ -43,20 +44,25 @@ Starting the queue worker does not start the API or another application worker.
 | `just worker-modules` | Lists modules that provide workers |
 | `just worker-list queue` | Lists workers provided by the queue module |
 | `just worker queue visibility-timeout-processor` | Starts the queue timeout worker |
+| `just worker queue expired-message-cleaner` | Starts the expired message cleaner |
 | `just migrate` | Applies pending database changes |
 
 An application module groups one feature's API routes, rules, database work, and
 workers. The queue module is the only application module today.
 
-## Message lifecycle
+Each worker starts a health and metrics server on the configured management
+port. Give workers different ports when running more than one on the same
+computer.
 
-For a message that has not expired:
+## Message lifecycle
 
 ```mermaid
 flowchart TD
     Added["Message added"] --> Waiting["Waiting in the queue"]
     Waiting --> Delivered["Returned to an API client"]
+    Waiting -->|"Lifetime ends"| Expired["Removed by<br/>expired-message-cleaner"]
     Delivered --> Completed{"Completed before its timeout?"}
+    Delivered -->|"Lifetime and visibility timeout end"| Expired
     Completed -->|"Yes"| Removed["Removed"]
     Completed -->|"No"| Limit{"Delivery attempt limit reached?"}
     Limit -->|"No"| Waiting
@@ -67,6 +73,10 @@ Returning a message creates a receipt handle and increases its delivery attempt
 count. Completing it with the current receipt handle removes it. If its
 visibility timeout ends first, the queue worker either makes it available again
 or stores it separately when the attempt limit has been reached.
+
+The expired message cleaner removes an expired waiting message. If a returned
+message expires, the cleaner waits for its visibility timeout to end before
+removing it.
 
 See [Queues and messages](queues.md) for the requests, responses, and settings
 used in this flow. See [Local services](../infra/local/README.md) for the
