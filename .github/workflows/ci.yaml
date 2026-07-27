@@ -61,7 +61,7 @@ jobs:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
         run: >-
           cargo test --locked --all-targets --all-features
-          processing_timeouts_requeues_retryable_and_dead_letters_exhausted_messages
+          modules::queue::infrastructure::postgres::tests
           -- --ignored
 
   compose:
