@@ -118,6 +118,34 @@ The current structure makes these choices explicit:
 
 The tradeoff is some manual wiring in `ApplicationContext`, module definitions, and `QueueModule`. That wiring is kept in a few small files so the rest of the code can remain focused on queue behavior.
 
+## How tests are separated
+
+Fast unit tests live in `src/tests/` and `src/modules/queue/tests/`. They use
+small replacements at repository boundaries and do not require Docker or a
+running database. Run them with:
+
+```bash
+just test
+```
+
+Black-box integration tests live in `tests/integration/`. Each scenario starts
+an isolated PostgreSQL 18.4 container through Testcontainers, applies migrations
+with the compiled Retsu binary, and launches the real API and worker processes.
+The tests drive HTTP endpoints and inspect durable database outcomes without
+calling private application or repository methods. Run them with:
+
+```bash
+just integration-test
+```
+
+Docker must be running, but the local Compose stack does not need to be started.
+Testcontainers removes each PostgreSQL container when its scenario finishes.
+
+Pull requests run the integration workflow only when the
+`run-integration-tests` label is added. Later commits do not rerun it
+automatically; remove and re-add the label for another deliberate run. Pushes to
+`main` always run the integration suite.
+
 ## Where to add a change
 
 For a new queue operation:
@@ -127,6 +155,6 @@ For a new queue operation:
 3. Add the required repository method and PostgreSQL implementation.
 4. Add a `QueueModule` method.
 5. Connect it to an API handler, a worker, or both.
-6. Test the operation with a fake repository and test PostgreSQL behavior separately.
+6. Test rules with a fake repository and protect cross-process behavior in the integration suite.
 
 For a new application module, follow the queue module's directory shape only for the parts the feature needs. Expose one module definition, add it to `MODULE_CATALOG`, and add its shared dependency to `ApplicationContext` if the API or a worker needs to call it.

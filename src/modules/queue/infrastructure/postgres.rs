@@ -902,7 +902,3 @@ impl QueueStateRepository for PostgresQueueRepository {
             .collect()
     }
 }
-
-#[cfg(test)]
-#[path = "../tests/infrastructure_postgres.rs"]
-mod tests;

@@ -63,9 +63,13 @@ fmt-check:
 lint:
     cargo clippy --locked --all-targets --all-features -- -D warnings
 
-# Run all tests.
+# Run fast unit tests without external services.
 test:
-    cargo test --locked --all-targets --all-features
+    cargo test --locked --lib --all-features
+
+# Run black-box integration tests with ephemeral Testcontainers dependencies.
+integration-test:
+    cargo test --locked --test integration --all-features -- --test-threads=1
 
 # Validate Docker Compose.
 compose-check:
@@ -73,6 +77,9 @@ compose-check:
 
 # Run all local quality gates.
 quality: justfile-check fmt-check lint test compose-check
+
+# Run local quality gates followed by the Docker-backed integration suite.
+quality-full: quality integration-test
 
 # Reapply the idempotent PostgreSQL observability bootstrap.
 db-observability-init:
