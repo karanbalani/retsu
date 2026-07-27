@@ -6,7 +6,10 @@ use uuid::Uuid;
 
 use super::PostgresQueueRepository;
 use crate::{
-    modules::queue::application::{MessageRepository, QueueStateRepository},
+    modules::queue::{
+        application::{MessageRepository, QueuePriorityStateSnapshot, QueueStateRepository},
+        domain::MessagePriority,
+    },
     observability::test_metrics,
 };
 
@@ -132,6 +135,28 @@ async fn processing_timeouts_requeues_retryable_and_dead_letters_exhausted_messa
 
     let (provider, metrics) = test_metrics();
     let repository = PostgresQueueRepository::new(pool.clone(), metrics.database().clone());
+    let mut lease = repository
+        .try_acquire_collector_lease()
+        .await?
+        .context("the lifecycle test should acquire collector leadership")?;
+
+    let state_before_processing = repository.queue_state(&mut lease).await?;
+    assert_eq!(state_before_processing.len(), 3);
+
+    for priority in [
+        MessagePriority::High,
+        MessagePriority::Medium,
+        MessagePriority::Low,
+    ] {
+        let state = state_for(&state_before_processing, priority);
+
+        assert_eq!(state.ready(), 0);
+        assert_eq!(
+            state.in_flight(),
+            0,
+            "timed-out deliveries should not appear in the logical in-flight state"
+        );
+    }
 
     let summary = repository.process_timed_out_messages(500).await?;
 
@@ -202,8 +227,36 @@ async fn processing_timeouts_requeues_retryable_and_dead_letters_exhausted_messa
     assert_eq!(dead_letter.4, "MAX_DELIVERY_ATTEMPTS_EXHAUSTED");
     assert!(dead_letter.5, "expiration should be preserved");
 
+    let state_after_processing = repository.queue_state(&mut lease).await?;
+    let high_priority = state_for(&state_after_processing, MessagePriority::High);
+    let medium_priority = state_for(&state_after_processing, MessagePriority::Medium);
+    let low_priority = state_for(&state_after_processing, MessagePriority::Low);
+
+    assert_eq!(high_priority.ready(), 1);
+    assert_eq!(high_priority.in_flight(), 0);
+    assert!(high_priority.oldest_ready_age_seconds() > 0.0);
+    assert_eq!(high_priority.oldest_in_flight_age_seconds(), 0.0);
+
+    for state in [medium_priority, low_priority] {
+        assert_eq!(state.ready(), 0);
+        assert_eq!(state.in_flight(), 0);
+        assert_eq!(state.oldest_ready_age_seconds(), 0.0);
+        assert_eq!(state.oldest_in_flight_age_seconds(), 0.0);
+    }
+
+    drop(lease);
     drop(repository);
     provider.shutdown().expect("provider should shut down");
 
     Ok(())
+}
+
+fn state_for(
+    snapshot: &[QueuePriorityStateSnapshot],
+    priority: MessagePriority,
+) -> &QueuePriorityStateSnapshot {
+    snapshot
+        .iter()
+        .find(|state| state.priority().as_str() == priority.as_str())
+        .unwrap_or_else(|| panic!("missing {} priority state", priority.as_str()))
 }
