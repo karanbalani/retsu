@@ -13,7 +13,7 @@ use super::super::{
 };
 
 use anyhow::{Context as _, anyhow};
-use sqlx::PgPool;
+use sqlx::{PgPool, Postgres, pool::PoolConnection};
 use tracing::{Span, field};
 use uuid::Uuid;
 
@@ -21,6 +21,10 @@ use uuid::Uuid;
 pub(in crate::modules::queue) struct PostgresQueueRepository {
     pool: PgPool,
     metrics: DatabaseMetrics,
+}
+
+pub(in crate::modules::queue) struct QueueStateCollectorLease {
+    connection: PoolConnection<Postgres>,
 }
 
 impl PostgresQueueRepository {
@@ -673,6 +677,55 @@ impl MessageRepository for PostgresQueueRepository {
 }
 
 impl QueueStateRepository for PostgresQueueRepository {
+    type CollectorLease = QueueStateCollectorLease;
+
+    #[tracing::instrument(
+        name = "db.operation",
+        skip_all,
+        fields(
+            db.system.name = "postgresql",
+            db.operation.name = "queue.try_acquire_state_collector_lease",
+            db.pool.acquire.duration = field::Empty,
+            error.type = field::Empty,
+            otel.status_code = field::Empty,
+        ),
+        err
+    )]
+    async fn try_acquire_collector_lease(
+        &self,
+    ) -> Result<Option<Self::CollectorLease>, anyhow::Error> {
+        const LOCK_NAMESPACE: i32 = 0x7265_7473; // "rets"
+        const LOCK_IDENTIFIER: i32 = 0x7153_7461; // "qSta"
+
+        let mut connection = database::acquire(&self.pool, &self.metrics).await?;
+        let started = Instant::now();
+
+        let result = sqlx::query_scalar::<_, bool>("SELECT pg_try_advisory_lock($1, $2)")
+            .bind(LOCK_NAMESPACE)
+            .bind(LOCK_IDENTIFIER)
+            .fetch_one(&mut *connection)
+            .await;
+
+        self.metrics.operation_finished(
+            "queue.try_acquire_state_collector_lease",
+            started.elapsed(),
+            result.is_ok(),
+        );
+
+        if let Err(error) = &result {
+            Span::current().record("error.type", database::error_type(error));
+            Span::current().record("otel.status_code", "ERROR");
+        }
+
+        if result? {
+            connection.close_on_drop();
+
+            Ok(Some(QueueStateCollectorLease { connection }))
+        } else {
+            Ok(None)
+        }
+    }
+
     #[tracing::instrument(
         name = "db.operation",
         skip_all,
@@ -685,9 +738,10 @@ impl QueueStateRepository for PostgresQueueRepository {
         ),
         err
     )]
-    async fn queue_state(&self) -> Result<Vec<QueuePriorityStateSnapshot>, anyhow::Error> {
-        let mut connection = database::acquire(&self.pool, &self.metrics).await?;
-
+    async fn queue_state(
+        &self,
+        lease: &mut Self::CollectorLease,
+    ) -> Result<Vec<QueuePriorityStateSnapshot>, anyhow::Error> {
         let started = Instant::now();
 
         let result = sqlx::query_as::<_, QueuePriorityStateRow>(
@@ -806,7 +860,7 @@ impl QueueStateRepository for PostgresQueueRepository {
                 priorities.priority DESC
             "#,
         )
-        .fetch_all(&mut *connection)
+        .fetch_all(&mut *lease.connection)
         .await;
 
         self.metrics.operation_finished(
@@ -851,11 +905,56 @@ impl QueueStateRepository for PostgresQueueRepository {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
+    use anyhow::Context as _;
     use sqlx::PgPool;
     use uuid::Uuid;
 
     use super::PostgresQueueRepository;
-    use crate::{modules::queue::application::MessageRepository, observability::test_metrics};
+    use crate::{
+        modules::queue::application::{MessageRepository, QueueStateRepository},
+        observability::test_metrics,
+    };
+
+    #[sqlx::test(migrations = "./migrations")]
+    #[ignore = "requires a PostgreSQL server"]
+    async fn state_collector_lease_allows_one_holder_and_releases_on_drop(
+        pool: PgPool,
+    ) -> Result<(), anyhow::Error> {
+        let (provider, metrics) = test_metrics();
+        let repository = PostgresQueueRepository::new(pool, metrics.database().clone());
+
+        let first = repository
+            .try_acquire_collector_lease()
+            .await?
+            .context("the first collector should acquire leadership")?;
+
+        assert!(
+            repository.try_acquire_collector_lease().await?.is_none(),
+            "a second collector should remain on standby"
+        );
+
+        drop(first);
+
+        let second = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if let Some(lease) = repository.try_acquire_collector_lease().await? {
+                    return Ok::<_, anyhow::Error>(lease);
+                }
+
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .context("collector leadership should be released after the holder is dropped")??;
+
+        drop(second);
+
+        provider.shutdown().expect("provider should shut down");
+
+        Ok(())
+    }
 
     #[sqlx::test(migrations = "./migrations")]
     #[ignore = "requires a PostgreSQL server"]
