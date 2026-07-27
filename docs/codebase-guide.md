@@ -3,6 +3,18 @@
 This page explains how the current code is arranged and how its parts connect.
 It describes the code on `main`, not a planned design.
 
+## Codebase map
+
+The code has two shapes. The queue module is vertical because it owns one
+feature from its API and workers down to its rules and database work. Runtime
+code is horizontal because it starts and supports the program outside that
+feature.
+
+![The shared runtime components and the vertical queue module](codebase-map.svg)
+
+The arrows show how the two shapes connect. They are not a timeline of every
+call made while the program runs.
+
 ## From the command to a running process
 
 Retsu builds one program that can run in three modes: API, worker, or migration.
