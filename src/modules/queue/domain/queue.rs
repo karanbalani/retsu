@@ -7,11 +7,15 @@ const MAX_QUEUE_NAME_LENGTH: usize = 64;
 
 const DEFAULT_VISIBILITY_TIMEOUT_SECONDS: u32 = 30;
 const MIN_VISIBILITY_TIMEOUT_SECONDS: u32 = 1;
-const MAX_VISIBILITY_TIMEOUT_SECONDS: u32 = 21600;
+const MAX_VISIBILITY_TIMEOUT_SECONDS: u32 = 21600; // 6 hours
 
 const DEFAULT_MAX_DELIVERY_ATTEMPTS: u16 = 5;
 const MIN_MAX_DELIVERY_ATTEMPTS: u16 = 1;
 const MAX_MAX_DELIVERY_ATTEMPTS: u16 = 100;
+
+const DEFAULT_MESSAGE_TTL_SECONDS: u32 = 604_800; // 7 days
+const MIN_MESSAGE_TTL_SECONDS: u32 = 1;
+const MAX_MESSAGE_TTL_SECONDS: u32 = 2_592_000; // 30 days
 
 #[derive(Clone, Debug)]
 pub(in crate::modules::queue) struct Queue {
@@ -25,11 +29,16 @@ impl Queue {
         name: String,
         visibility_timeout_seconds: Option<u32>,
         max_delivery_attempts: Option<u16>,
+        default_message_ttl_seconds: Option<u32>,
     ) -> Result<Self, QueueValidationError> {
         Ok(Self {
             id: Uuid::now_v7(),
             name: QueueName::parse(name)?,
-            settings: QueueSettings::new(visibility_timeout_seconds, max_delivery_attempts)?,
+            settings: QueueSettings::new(
+                visibility_timeout_seconds,
+                max_delivery_attempts,
+                default_message_ttl_seconds,
+            )?,
         })
     }
 
@@ -47,6 +56,10 @@ impl Queue {
 
     pub(in crate::modules::queue) fn max_delivery_attempts(&self) -> u16 {
         self.settings.max_delivery_attempts()
+    }
+
+    pub(in crate::modules::queue) fn default_message_ttl_seconds(&self) -> u32 {
+        self.settings.default_message_ttl_seconds()
     }
 }
 
@@ -91,12 +104,14 @@ fn is_queue_name_character(byte: u8) -> bool {
 struct QueueSettings {
     visibility_timeout_seconds: u32,
     max_delivery_attempts: u16,
+    default_message_ttl_seconds: u32,
 }
 
 impl QueueSettings {
     fn new(
         visibility_timeout_seconds: Option<u32>,
         max_delivery_attempts: Option<u16>,
+        default_message_ttl_seconds: Option<u32>,
     ) -> Result<Self, QueueSettingsError> {
         let visibility_timeout_seconds =
             visibility_timeout_seconds.unwrap_or(DEFAULT_VISIBILITY_TIMEOUT_SECONDS);
@@ -114,9 +129,19 @@ impl QueueSettings {
             return Err(QueueSettingsError::InvalidMaxDeliveryAttempts);
         }
 
+        let default_message_ttl_seconds =
+            default_message_ttl_seconds.unwrap_or(DEFAULT_MESSAGE_TTL_SECONDS);
+
+        if !(MIN_MESSAGE_TTL_SECONDS..=MAX_MESSAGE_TTL_SECONDS)
+            .contains(&default_message_ttl_seconds)
+        {
+            return Err(QueueSettingsError::InvalidDefaultMessageTtl);
+        }
+
         Ok(Self {
             visibility_timeout_seconds,
             max_delivery_attempts,
+            default_message_ttl_seconds,
         })
     }
 
@@ -126,6 +151,10 @@ impl QueueSettings {
 
     fn max_delivery_attempts(&self) -> u16 {
         self.max_delivery_attempts
+    }
+
+    fn default_message_ttl_seconds(&self) -> u32 {
+        self.default_message_ttl_seconds
     }
 }
 
@@ -149,6 +178,7 @@ pub(in crate::modules::queue) enum QueueNameError {
     InvalidFormat,
 }
 
+#[allow(clippy::enum_variant_names)]
 #[derive(Debug, Error)]
 pub(in crate::modules::queue) enum QueueSettingsError {
     #[error("visibility timeout must be between 1 and 21600 seconds")]
@@ -156,6 +186,9 @@ pub(in crate::modules::queue) enum QueueSettingsError {
 
     #[error("max delivery attempts must be between 1 and 100")]
     InvalidMaxDeliveryAttempts,
+
+    #[error("default message TTL must be between 1 and 2592000 seconds")]
+    InvalidDefaultMessageTtl,
 }
 
 #[cfg(test)]
@@ -164,12 +197,13 @@ mod tests {
 
     use super::{
         DEFAULT_MAX_DELIVERY_ATTEMPTS, DEFAULT_VISIBILITY_TIMEOUT_SECONDS,
-        MAX_MAX_DELIVERY_ATTEMPTS, MAX_VISIBILITY_TIMEOUT_SECONDS, Queue, QueueValidationError,
+        MAX_MAX_DELIVERY_ATTEMPTS, MAX_MESSAGE_TTL_SECONDS, MAX_VISIBILITY_TIMEOUT_SECONDS, Queue,
+        QueueValidationError,
     };
 
     #[test]
     fn creates_queues_with_uuid_v7_defaults_and_supported_boundaries() {
-        let queue = Queue::new("email-delivery".to_owned(), None, None)
+        let queue = Queue::new("email-delivery".to_owned(), None, None, None)
             .expect("valid queue should be created");
 
         assert_eq!(queue.id().get_version(), Some(Version::SortRand));
@@ -184,6 +218,7 @@ mod tests {
             maximum_length_name.clone(),
             Some(MAX_VISIBILITY_TIMEOUT_SECONDS),
             Some(MAX_MAX_DELIVERY_ATTEMPTS),
+            Some(MAX_MESSAGE_TTL_SECONDS),
         )
         .expect("boundary values should be accepted");
 
@@ -213,7 +248,7 @@ mod tests {
         for name in invalid_names {
             assert!(
                 matches!(
-                    Queue::new(name, None, None),
+                    Queue::new(name, None, None, None),
                     Err(QueueValidationError::InvalidName(_))
                 ),
                 "invalid queue name should be rejected"
@@ -237,6 +272,7 @@ mod tests {
                         "email-delivery".to_owned(),
                         visibility_timeout_seconds,
                         max_delivery_attempts,
+                        None,
                     ),
                     Err(QueueValidationError::InvalidSettings(_))
                 ),

@@ -1,6 +1,9 @@
 use thiserror::Error;
 use uuid::Uuid;
 
+const MIN_MESSAGE_TTL_SECONDS: u32 = 1;
+const MAX_MESSAGE_TTL_SECONDS: u32 = 2_592_000;
+
 #[derive(Clone, Debug)]
 pub(in crate::modules::queue) struct Message {
     id: Uuid,
@@ -17,7 +20,9 @@ impl Message {
     ) -> Result<Self, MessageValidationError> {
         let priority = MessagePriority::parse(&priority)?;
 
-        if ttl_seconds == Some(0) {
+        if ttl_seconds
+            .is_some_and(|ttl| !(MIN_MESSAGE_TTL_SECONDS..=MAX_MESSAGE_TTL_SECONDS).contains(&ttl))
+        {
             return Err(MessageValidationError::InvalidTtl);
         }
 
@@ -94,7 +99,7 @@ pub(in crate::modules::queue) enum MessageValidationError {
     #[error("priority must be one of HIGH, MEDIUM or LOW")]
     InvalidPriority,
 
-    #[error("ttl_seconds must be greater than zero when provided")]
+    #[error("ttl_seconds must be between 1 and 2592000 when provided")]
     InvalidTtl,
 }
 

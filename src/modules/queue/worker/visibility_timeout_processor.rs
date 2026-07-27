@@ -4,12 +4,12 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{app::ApplicationContext, worker::WorkerRegistration};
 
-pub(super) const NAME: &str = "visibility-timeout-processor";
-
 const REQUEUE_INTERVAL: Duration = Duration::from_secs(5);
 const REQUEUE_BATCH_SIZE: u32 = 500;
 
-pub(super) fn registration() -> WorkerRegistration {
+pub(in crate::modules::queue) const NAME: &str = "visibility-timeout-processor";
+
+pub(in crate::modules::queue) fn registration() -> WorkerRegistration {
     WorkerRegistration {
         name: NAME,
         run: Box::new(|context, cancellation| Box::pin(run(context, cancellation))),

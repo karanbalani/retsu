@@ -100,6 +100,77 @@ impl TimeoutProcessingSummary {
     }
 }
 
+#[derive(Debug)]
+pub(in crate::modules::queue) struct QueueExpiredMessagesCleanupSummary {
+    queue_name: String,
+    never_delivered: u64,
+    previously_delivered: u64,
+}
+
+impl QueueExpiredMessagesCleanupSummary {
+    pub fn new(queue_name: String, never_delivered: u64, previously_delivered: u64) -> Self {
+        Self {
+            queue_name,
+            never_delivered,
+            previously_delivered,
+        }
+    }
+
+    pub(in crate::modules::queue) fn queue_name(&self) -> &str {
+        &self.queue_name
+    }
+
+    pub(in crate::modules::queue) fn never_delivered(&self) -> u64 {
+        self.never_delivered
+    }
+
+    pub(in crate::modules::queue) fn previously_delivered(&self) -> u64 {
+        self.previously_delivered
+    }
+
+    pub(in crate::modules::queue) fn processed(&self) -> u64 {
+        self.never_delivered + self.previously_delivered
+    }
+}
+
+#[derive(Debug)]
+pub(in crate::modules::queue) struct ExpiredMessagesCleanupSummary {
+    per_queue: Vec<QueueExpiredMessagesCleanupSummary>,
+}
+
+impl ExpiredMessagesCleanupSummary {
+    pub(in crate::modules::queue) fn new(
+        per_queue: Vec<QueueExpiredMessagesCleanupSummary>,
+    ) -> Self {
+        Self { per_queue }
+    }
+
+    pub(in crate::modules::queue) fn per_queue(&self) -> &[QueueExpiredMessagesCleanupSummary] {
+        &self.per_queue
+    }
+
+    pub(in crate::modules::queue) fn processed(&self) -> u64 {
+        self.per_queue
+            .iter()
+            .map(QueueExpiredMessagesCleanupSummary::processed)
+            .sum()
+    }
+
+    pub(in crate::modules::queue) fn never_delivered(&self) -> u64 {
+        self.per_queue
+            .iter()
+            .map(QueueExpiredMessagesCleanupSummary::never_delivered)
+            .sum()
+    }
+
+    pub(in crate::modules::queue) fn previously_delivered(&self) -> u64 {
+        self.per_queue
+            .iter()
+            .map(QueueExpiredMessagesCleanupSummary::previously_delivered)
+            .sum()
+    }
+}
+
 pub(in crate::modules::queue) trait QueueRepository {
     async fn create_queue(&self, queue: &Queue) -> Result<CreateQueueOutcome, anyhow::Error>;
 }
@@ -128,4 +199,9 @@ pub(in crate::modules::queue) trait MessageRepository {
         &self,
         batch_size: u32,
     ) -> Result<TimeoutProcessingSummary, anyhow::Error>;
+
+    async fn process_expired_messages(
+        &self,
+        batch_size: u32,
+    ) -> Result<ExpiredMessagesCleanupSummary, anyhow::Error>;
 }

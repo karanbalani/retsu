@@ -12,6 +12,7 @@ pub(in crate::modules::queue) struct CreateQueueCommand {
     name: String,
     visibility_timeout_seconds: Option<u32>,
     max_delivery_attempts: Option<u16>,
+    default_message_ttl_seconds: Option<u32>,
 }
 
 impl CreateQueueCommand {
@@ -19,11 +20,13 @@ impl CreateQueueCommand {
         name: String,
         visibility_timeout_seconds: Option<u32>,
         max_delivery_attempts: Option<u16>,
+        default_message_ttl_seconds: Option<u32>,
     ) -> Self {
         Self {
             name,
             visibility_timeout_seconds,
             max_delivery_attempts,
+            default_message_ttl_seconds,
         }
     }
 }
@@ -34,6 +37,7 @@ pub(in crate::modules::queue) struct CreatedQueue {
     name: String,
     visibility_timeout_seconds: u32,
     max_delivery_attempts: u16,
+    default_message_ttl_seconds: u32,
 }
 
 impl CreatedQueue {
@@ -52,6 +56,10 @@ impl CreatedQueue {
     pub(in crate::modules::queue) fn max_delivery_attempts(&self) -> u16 {
         self.max_delivery_attempts
     }
+
+    pub(in crate::modules::queue) fn default_message_ttl_seconds(&self) -> u32 {
+        self.default_message_ttl_seconds
+    }
 }
 
 #[tracing::instrument(name = "queue.create", skip_all, fields(queue.name = %command.name, queue.id = field::Empty), err)]
@@ -66,6 +74,7 @@ where
         command.name,
         command.visibility_timeout_seconds,
         command.max_delivery_attempts,
+        command.default_message_ttl_seconds,
     )
     .map_err(CreateQueueError::from)?;
 
@@ -85,6 +94,7 @@ where
         name: queue.name().to_owned(),
         visibility_timeout_seconds: queue.visibility_timeout_seconds(),
         max_delivery_attempts: queue.max_delivery_attempts(),
+        default_message_ttl_seconds: queue.default_message_ttl_seconds(),
     })
 }
 
@@ -161,7 +171,8 @@ mod tests {
     #[tokio::test]
     async fn persists_and_returns_the_effective_queue() {
         let repository = FakeQueueRepository::new(CreateQueueOutcome::Created);
-        let command = CreateQueueCommand::new("email-delivery".to_owned(), Some(45), Some(7));
+        let command =
+            CreateQueueCommand::new("email-delivery".to_owned(), Some(45), Some(7), Some(300));
 
         let created = execute(&repository, command)
             .await
@@ -187,7 +198,7 @@ mod tests {
     #[tokio::test]
     async fn rejects_invalid_commands_without_calling_the_repository() {
         let repository = FakeQueueRepository::new(CreateQueueOutcome::Created);
-        let command = CreateQueueCommand::new("Invalid Name".to_owned(), None, None);
+        let command = CreateQueueCommand::new("Invalid Name".to_owned(), None, None, None);
 
         let result = execute(&repository, command).await;
 
@@ -198,7 +209,7 @@ mod tests {
     #[tokio::test]
     async fn maps_repository_conflicts_to_queue_already_exists() {
         let repository = FakeQueueRepository::new(CreateQueueOutcome::AlreadyExists);
-        let command = CreateQueueCommand::new("email-delivery".to_owned(), None, None);
+        let command = CreateQueueCommand::new("email-delivery".to_owned(), None, None, None);
 
         let result = execute(&repository, command).await;
 

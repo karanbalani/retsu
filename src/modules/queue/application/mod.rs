@@ -2,6 +2,7 @@ mod acknowledge_message;
 mod create_queue;
 mod dequeue_message;
 mod enqueue_message;
+mod process_expired_messages;
 mod process_timed_out_messages;
 mod repository;
 
@@ -11,7 +12,8 @@ pub(in crate::modules::queue) use create_queue::{
 
 pub(in crate::modules::queue) use repository::{
     AcknowledgeMessageOutcome, CreateQueueOutcome, DequeueMessageOutcome, EnqueueMessageOutcome,
-    MessageRepository, QueueRepository, QueueTimeoutProcessingSummary, TimeoutProcessingSummary,
+    ExpiredMessagesCleanupSummary, MessageRepository, QueueExpiredMessagesCleanupSummary,
+    QueueRepository, QueueTimeoutProcessingSummary, TimeoutProcessingSummary,
 };
 
 pub(in crate::modules::queue) use dequeue_message::{
@@ -28,6 +30,10 @@ pub(in crate::modules::queue) use acknowledge_message::{
 
 pub(in crate::modules::queue) use process_timed_out_messages::{
     ProcessTimedOutMessagesError, execute as execute_process_timed_out_messages,
+};
+
+pub(in crate::modules::queue) use process_expired_messages::{
+    ProcessExpiredMessagesError, execute as execute_process_expired_messages,
 };
 
 #[cfg(test)]
@@ -132,6 +138,13 @@ mod lifecycle_tests {
                     self.timeout_dead_lettered,
                 ),
             ]))
+        }
+
+        async fn process_expired_messages(
+            &self,
+            _batch_size: u32,
+        ) -> Result<crate::modules::queue::ExpiredMessagesCleanupSummary, anyhow::Error> {
+            unreachable!("this test should not process expired messages")
         }
     }
 

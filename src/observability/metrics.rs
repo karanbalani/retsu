@@ -45,6 +45,7 @@ pub(crate) struct QueueMetrics {
     messages_acknowledged: Counter<u64>,
     messages_requeued: Counter<u64>,
     messages_dead_lettered: Counter<u64>,
+    messages_expired: Counter<u64>,
 }
 
 impl QueueMetrics {
@@ -73,11 +74,18 @@ impl QueueMetrics {
             .with_unit("{message}")
             .build();
 
+        let messages_expired = meter
+            .u64_counter("queue.messages.expired")
+            .with_description("Number of expired messages removed from active queue storage")
+            .with_unit("{message}")
+            .build();
+
         Self {
             messages_enqueued,
             messages_acknowledged,
             messages_requeued,
             messages_dead_lettered,
+            messages_expired,
         }
     }
 
@@ -107,6 +115,23 @@ impl QueueMetrics {
         if count > 0 {
             self.messages_dead_lettered
                 .add(count, &[KeyValue::new("queue.name", queue_name.to_owned())]);
+        }
+    }
+
+    pub(crate) fn messages_expired(
+        &self,
+        queue_name: &str,
+        delivery_history: &'static str,
+        count: u64,
+    ) {
+        if count > 0 {
+            self.messages_expired.add(
+                count,
+                &[
+                    KeyValue::new("queue.name", queue_name.to_owned()),
+                    KeyValue::new("message.delivery_history", delivery_history),
+                ],
+            );
         }
     }
 }

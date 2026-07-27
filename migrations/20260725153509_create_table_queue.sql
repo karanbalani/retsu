@@ -3,6 +3,7 @@ CREATE TABLE queue (
     name TEXT NOT NULL UNIQUE,
     visibility_timeout_seconds INTEGER NOT NULL,
     max_delivery_attempts SMALLINT NOT NULL,
+    default_message_ttl_seconds INTEGER NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -22,6 +23,10 @@ CHECK (visibility_timeout_seconds BETWEEN 1 AND 21600); -- 6 hours
 ALTER TABLE queue
 ADD CONSTRAINT queue_max_delivery_attempts_range
 CHECK (max_delivery_attempts BETWEEN 1 AND 100);
+
+ALTER TABLE queue
+ADD CONSTRAINT queue_default_message_ttl_range
+CHECK (default_message_ttl_seconds BETWEEN 1 AND 2592000); -- 30 days
 
 ALTER TABLE queue
 ADD CONSTRAINT queue_updated_at_not_before_created_at

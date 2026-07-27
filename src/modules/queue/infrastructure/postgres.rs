@@ -5,7 +5,8 @@ use crate::{database, observability::DatabaseMetrics};
 use super::super::{
     application::{
         AcknowledgeMessageOutcome, CreateQueueOutcome, DequeueMessageOutcome,
-        EnqueueMessageOutcome, MessageRepository, QueueRepository, QueueTimeoutProcessingSummary,
+        EnqueueMessageOutcome, ExpiredMessagesCleanupSummary, MessageRepository,
+        QueueExpiredMessagesCleanupSummary, QueueRepository, QueueTimeoutProcessingSummary,
         TimeoutProcessingSummary,
     },
     domain::{Message, MessagePriority, Queue},
@@ -51,6 +52,13 @@ struct ProcessTimedOutMessagesRow {
     dead_lettered: i64,
 }
 
+#[derive(sqlx::FromRow)]
+struct ProcessExpiredMessagesRow {
+    queue_name: String,
+    never_delivered: i64,
+    previously_delivered: i64,
+}
+
 impl QueueRepository for PostgresQueueRepository {
     #[tracing::instrument(
         name = "db.operation",
@@ -71,6 +79,9 @@ impl QueueRepository for PostgresQueueRepository {
         let max_delivery_attempts = i16::try_from(queue.max_delivery_attempts())
             .expect("validated delivery attempt limit fits in PostgreSQL SMALLINT");
 
+        let default_message_ttl_seconds = i32::try_from(queue.default_message_ttl_seconds())
+            .expect("validated default message TTL fits in PostgreSQL INTEGER");
+
         let mut connection = database::acquire(&self.pool, &self.metrics).await?;
 
         let started = Instant::now();
@@ -78,9 +89,13 @@ impl QueueRepository for PostgresQueueRepository {
         let result = sqlx::query_scalar::<_, Uuid>(
             r#"
             INSERT INTO queue (
-                id, name, visibility_timeout_seconds, max_delivery_attempts
+                id,
+                name,
+                visibility_timeout_seconds,
+                max_delivery_attempts,
+                default_message_ttl_seconds
             )
-            VALUES ($1, $2, $3, $4)
+            VALUES ($1, $2, $3, $4, $5)
             ON CONFLICT (name) DO NOTHING
             RETURNING id
             "#,
@@ -89,6 +104,7 @@ impl QueueRepository for PostgresQueueRepository {
         .bind(queue.name())
         .bind(visibility_timeout_seconds)
         .bind(max_delivery_attempts)
+        .bind(default_message_ttl_seconds)
         .fetch_optional(&mut *connection)
         .await;
 
@@ -142,10 +158,14 @@ impl MessageRepository for PostgresQueueRepository {
                 queue.id,
                 $2,
                 $3,
-                CASE
-                    WHEN $4::BIGINT IS NULL THEN NULL
-                    ELSE CURRENT_TIMESTAMP + ($4::BIGINT * INTERVAL '1 second')
-                END
+                CURRENT_TIMESTAMP
+                    + (
+                        COALESCE(
+                            $4::BIGINT,
+                            queue.default_message_ttl_seconds::BIGINT
+                        )
+                        * INTERVAL '1 second'
+                    )
             FROM queue
             WHERE queue.name = $5
             RETURNING id
@@ -210,10 +230,7 @@ impl MessageRepository for PostgresQueueRepository {
                 JOIN target_queue
                     ON target_queue.id = message.queue_id
                 WHERE message.state = 'READY'
-                  AND (
-                      message.expires_at IS NULL
-                      OR message.expires_at > CURRENT_TIMESTAMP
-                  )
+                  AND message.expires_at > CURRENT_TIMESTAMP
                 ORDER BY
                     message.priority DESC,
                     message.enqueue_order ASC
@@ -418,6 +435,7 @@ impl MessageRepository for PostgresQueueRepository {
                     ON queue.id = message.queue_id
                 WHERE message.state = 'IN_FLIGHT'
                   AND message.visibility_deadline <= CURRENT_TIMESTAMP
+                  AND message.expires_at > CURRENT_TIMESTAMP
                 ORDER BY
                     message.visibility_deadline ASC,
                     message.id ASC
@@ -540,6 +558,107 @@ impl MessageRepository for PostgresQueueRepository {
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(TimeoutProcessingSummary::new(per_queue))
+    }
+
+    #[tracing::instrument(
+        name = "db.operation",
+        skip_all,
+        fields(
+            db.system.name = "postgresql",
+            db.operation.name = "queue.process_expired_messages",
+            db.pool.acquire.duration = field::Empty,
+            error.type = field::Empty,
+            otel.status_code = field::Empty,
+        ),
+        err
+    )]
+    async fn process_expired_messages(
+        &self,
+        batch_size: u32,
+    ) -> Result<ExpiredMessagesCleanupSummary, anyhow::Error> {
+        let mut connection = database::acquire(&self.pool, &self.metrics).await?;
+
+        let started = Instant::now();
+
+        let result = sqlx::query_as::<_, ProcessExpiredMessagesRow>(
+            r#"
+            WITH expired AS MATERIALIZED (
+                SELECT message.id
+                FROM queue_message AS message
+                WHERE message.expires_at <= CURRENT_TIMESTAMP
+                  AND (
+                      message.state = 'READY'
+                      OR (
+                          message.state = 'IN_FLIGHT'
+                          AND message.visibility_deadline <= CURRENT_TIMESTAMP
+                      )
+                  )
+                ORDER BY
+                    message.expires_at ASC,
+                    message.id ASC
+                FOR UPDATE OF message SKIP LOCKED
+                LIMIT $1
+            ),
+            deleted AS (
+                DELETE FROM queue_message AS message
+                USING expired
+                WHERE message.id = expired.id
+                RETURNING
+                    message.queue_id,
+                    message.delivery_attempts
+            )
+            SELECT
+                queue.name AS queue_name,
+                COUNT(*) FILTER (
+                    WHERE deleted.delivery_attempts = 0
+                ) AS never_delivered,
+                COUNT(*) FILTER (
+                    WHERE deleted.delivery_attempts > 0
+                ) AS previously_delivered
+            FROM deleted
+            JOIN queue
+                ON queue.id = deleted.queue_id
+            GROUP BY queue.name
+            ORDER BY queue.name
+            "#,
+        )
+        .bind(i64::from(batch_size))
+        .fetch_all(&mut *connection)
+        .await;
+
+        self.metrics.operation_finished(
+            "queue.process_expired_messages",
+            started.elapsed(),
+            result.is_ok(),
+        );
+
+        if let Err(error) = &result {
+            Span::current().record("error.type", database::error_type(error));
+            Span::current().record("otel.status_code", "ERROR");
+        }
+
+        let per_queue = result?
+            .into_iter()
+            .map(
+                |row| -> Result<QueueExpiredMessagesCleanupSummary, anyhow::Error> {
+                    let never_delivered = u64::try_from(row.never_delivered).context(
+                        "expired message query returned a negative never-delivered count",
+                    )?;
+
+                    let previously_delivered = u64::try_from(row.previously_delivered).context(
+                        "expired message query returned a negative previously-delivered count",
+                    )?;
+
+                    Ok(QueueExpiredMessagesCleanupSummary::new(
+                        row.queue_name,
+                        never_delivered,
+                        previously_delivered,
+                    ))
+                },
+            )
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(ExpiredMessagesCleanupSummary::new(per_queue))
     }
 }
 

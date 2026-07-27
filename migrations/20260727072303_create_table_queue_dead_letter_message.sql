@@ -4,7 +4,7 @@ CREATE TABLE queue_dead_letter_message (
     payload BYTEA NOT NULL,
     priority SMALLINT NOT NULL,
     enqueued_at TIMESTAMPTZ NOT NULL,
-    expires_at TIMESTAMPTZ,
+    expires_at TIMESTAMPTZ NOT NULL,
     delivery_attempts SMALLINT NOT NULL,
     last_delivered_at TIMESTAMPTZ NOT NULL,
     dead_lettered_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -27,6 +27,7 @@ ALTER TABLE queue_dead_letter_message
 ADD CONSTRAINT queue_dead_letter_message_timestamps_consistent
 CHECK (
     last_delivered_at >= enqueued_at
+    AND expires_at > enqueued_at
     AND dead_lettered_at >= last_delivered_at
 );
 

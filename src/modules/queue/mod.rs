@@ -12,15 +12,25 @@ use super::definition::{ModuleDefinition, WorkerDefinition};
 use application::{
     AcknowledgeMessageCommand, AcknowledgeMessageError, CreateQueueCommand, CreateQueueError,
     CreatedQueue, DequeueMessageCommand, DequeueMessageError, DequeuedMessage,
-    EnqueueMessageCommand, EnqueueMessageError, EnqueuedMessage, ProcessTimedOutMessagesError,
-    TimeoutProcessingSummary, execute_acknowledge_message, execute_create_queue,
-    execute_dequeue_message, execute_enqueue_message, execute_process_timed_out_messages,
+    EnqueueMessageCommand, EnqueueMessageError, EnqueuedMessage, ExpiredMessagesCleanupSummary,
+    ProcessExpiredMessagesError, ProcessTimedOutMessagesError, TimeoutProcessingSummary,
+    execute_acknowledge_message, execute_create_queue, execute_dequeue_message,
+    execute_enqueue_message, execute_process_expired_messages, execute_process_timed_out_messages,
 };
 use infrastructure::PostgresQueueRepository;
 
 use crate::observability::{DatabaseMetrics, QueueMetrics};
 
-const WORKERS: &[WorkerDefinition] = &[WorkerDefinition::new(worker::NAME, worker::registration)];
+const WORKERS: &[WorkerDefinition] = &[
+    WorkerDefinition::new(
+        worker::VISIBILITY_TIMEOUT_PROCESSOR_NAME,
+        worker::visibility_timeout_registration,
+    ),
+    WorkerDefinition::new(
+        worker::EXPIRED_MESSAGE_CLEANER_NAME,
+        worker::expired_message_cleaner_registration,
+    ),
+];
 
 pub(super) const DEFINITION: ModuleDefinition = ModuleDefinition::new("queue")
     .with_api(configure_api)
@@ -95,6 +105,29 @@ impl QueueModule {
 
             self.queue_metrics
                 .messages_dead_lettered(queue_summary.queue_name(), queue_summary.dead_lettered());
+        }
+
+        Ok(summary)
+    }
+
+    async fn process_expired_messages(
+        &self,
+        batch_size: u32,
+    ) -> Result<ExpiredMessagesCleanupSummary, ProcessExpiredMessagesError> {
+        let summary = execute_process_expired_messages(&self.repository, batch_size).await?;
+
+        for queue_summary in summary.per_queue() {
+            self.queue_metrics.messages_expired(
+                queue_summary.queue_name(),
+                "never_delivered",
+                queue_summary.never_delivered(),
+            );
+
+            self.queue_metrics.messages_expired(
+                queue_summary.queue_name(),
+                "previously_delivered",
+                queue_summary.previously_delivered(),
+            );
         }
 
         Ok(summary)
