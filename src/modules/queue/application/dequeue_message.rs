@@ -119,7 +119,9 @@ mod tests {
         MessageRepository, execute,
     };
     use crate::modules::queue::{
-        application::repository::{AcknowledgeMessageOutcome, EnqueueMessageOutcome},
+        application::repository::{
+            AcknowledgeMessageOutcome, EnqueueMessageOutcome, TimeoutProcessingSummary,
+        },
         domain::Message,
     };
 
@@ -194,8 +196,11 @@ mod tests {
             unreachable!("dequeue tests should not acknowledge messages")
         }
 
-        async fn requeue_timed_out_messages(&self, _batch_size: u32) -> Result<u64, anyhow::Error> {
-            unreachable!("dequeue tests should not requeue messages")
+        async fn process_timed_out_messages(
+            &self,
+            _batch_size: u32,
+        ) -> Result<TimeoutProcessingSummary, anyhow::Error> {
+            unreachable!("this test should not process timed-out messages")
         }
     }
 

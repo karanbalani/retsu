@@ -2,8 +2,8 @@ mod acknowledge_message;
 mod create_queue;
 mod dequeue_message;
 mod enqueue_message;
+mod process_timed_out_messages;
 mod repository;
-mod requeue_timed_out_messages;
 
 pub(in crate::modules::queue) use create_queue::{
     CreateQueueCommand, CreateQueueError, CreatedQueue, execute as execute_create_queue,
@@ -11,7 +11,7 @@ pub(in crate::modules::queue) use create_queue::{
 
 pub(in crate::modules::queue) use repository::{
     AcknowledgeMessageOutcome, CreateQueueOutcome, DequeueMessageOutcome, EnqueueMessageOutcome,
-    MessageRepository, QueueRepository,
+    MessageRepository, QueueRepository, QueueTimeoutProcessingSummary, TimeoutProcessingSummary,
 };
 
 pub(in crate::modules::queue) use dequeue_message::{
@@ -26,8 +26,8 @@ pub(in crate::modules::queue) use acknowledge_message::{
     AcknowledgeMessageCommand, AcknowledgeMessageError, execute as execute_acknowledge_message,
 };
 
-pub(in crate::modules::queue) use requeue_timed_out_messages::{
-    RequeueTimedOutMessagesError, execute as execute_requeue_timed_out_messages,
+pub(in crate::modules::queue) use process_timed_out_messages::{
+    ProcessTimedOutMessagesError, execute as execute_process_timed_out_messages,
 };
 
 #[cfg(test)]
@@ -42,15 +42,17 @@ mod lifecycle_tests {
     use super::{
         AcknowledgeMessageCommand, AcknowledgeMessageError, AcknowledgeMessageOutcome,
         DequeueMessageOutcome, EnqueueMessageOutcome, MessageRepository,
-        execute_acknowledge_message, execute_requeue_timed_out_messages,
+        QueueTimeoutProcessingSummary, TimeoutProcessingSummary, execute_acknowledge_message,
+        execute_process_timed_out_messages,
     };
     use crate::modules::queue::domain::Message;
 
     struct FakeMessageRepository {
         acknowledge_outcome: AcknowledgeMessageOutcome,
         acknowledge_call: Mutex<Option<(String, Uuid, Uuid)>>,
-        requeued_count: u64,
-        requeue_batch_size: AtomicU32,
+        timeout_requeued: u64,
+        timeout_dead_lettered: u64,
+        timeout_batch_size: AtomicU32,
     }
 
     impl FakeMessageRepository {
@@ -58,17 +60,19 @@ mod lifecycle_tests {
             Self {
                 acknowledge_outcome: outcome,
                 acknowledge_call: Mutex::new(None),
-                requeued_count: 0,
-                requeue_batch_size: AtomicU32::new(0),
+                timeout_requeued: 0,
+                timeout_dead_lettered: 0,
+                timeout_batch_size: AtomicU32::new(0),
             }
         }
 
-        fn with_requeued_count(requeued_count: u64) -> Self {
+        fn with_timeout_counts(requeued: u64, dead_lettered: u64) -> Self {
             Self {
                 acknowledge_outcome: AcknowledgeMessageOutcome::Acknowledged,
                 acknowledge_call: Mutex::new(None),
-                requeued_count,
-                requeue_batch_size: AtomicU32::new(0),
+                timeout_requeued: requeued,
+                timeout_dead_lettered: dead_lettered,
+                timeout_batch_size: AtomicU32::new(0),
             }
         }
     }
@@ -115,9 +119,19 @@ mod lifecycle_tests {
             })
         }
 
-        async fn requeue_timed_out_messages(&self, batch_size: u32) -> Result<u64, anyhow::Error> {
-            self.requeue_batch_size.store(batch_size, Ordering::Relaxed);
-            Ok(self.requeued_count)
+        async fn process_timed_out_messages(
+            &self,
+            batch_size: u32,
+        ) -> Result<TimeoutProcessingSummary, anyhow::Error> {
+            self.timeout_batch_size.store(batch_size, Ordering::Relaxed);
+
+            Ok(TimeoutProcessingSummary::new(vec![
+                QueueTimeoutProcessingSummary::new(
+                    "email-delivery".to_owned(),
+                    self.timeout_requeued,
+                    self.timeout_dead_lettered,
+                ),
+            ]))
         }
     }
 
@@ -182,14 +196,25 @@ mod lifecycle_tests {
     }
 
     #[tokio::test]
-    async fn forwards_the_requeue_batch_and_returns_the_affected_count() {
-        let repository = FakeMessageRepository::with_requeued_count(37);
+    async fn forwards_timeout_processing_and_preserves_the_summary() {
+        let repository = FakeMessageRepository::with_timeout_counts(37, 5);
 
-        let requeued = execute_requeue_timed_out_messages(&repository, 500)
+        let summary = execute_process_timed_out_messages(&repository, 500)
             .await
-            .expect("timed-out messages should be requeued");
+            .expect("timed-out messages should be processed");
 
-        assert_eq!(requeued, 37);
-        assert_eq!(repository.requeue_batch_size.load(Ordering::Relaxed), 500);
+        assert_eq!(repository.timeout_batch_size.load(Ordering::Relaxed), 500);
+        assert_eq!(summary.processed(), 42);
+        assert_eq!(summary.requeued(), 37);
+        assert_eq!(summary.dead_lettered(), 5);
+
+        let queue_summary = summary
+            .per_queue()
+            .first()
+            .expect("summary should contain the affected queue");
+
+        assert_eq!(queue_summary.queue_name(), "email-delivery");
+        assert_eq!(queue_summary.requeued(), 37);
+        assert_eq!(queue_summary.dead_lettered(), 5);
     }
 }

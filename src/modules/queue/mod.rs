@@ -10,9 +10,9 @@ use sqlx::PgPool;
 use application::{
     AcknowledgeMessageCommand, AcknowledgeMessageError, CreateQueueCommand, CreateQueueError,
     CreatedQueue, DequeueMessageCommand, DequeueMessageError, DequeuedMessage,
-    EnqueueMessageCommand, EnqueueMessageError, EnqueuedMessage, RequeueTimedOutMessagesError,
-    execute_acknowledge_message, execute_create_queue, execute_dequeue_message,
-    execute_enqueue_message, execute_requeue_timed_out_messages,
+    EnqueueMessageCommand, EnqueueMessageError, EnqueuedMessage, ProcessTimedOutMessagesError,
+    TimeoutProcessingSummary, execute_acknowledge_message, execute_create_queue,
+    execute_dequeue_message, execute_enqueue_message, execute_process_timed_out_messages,
 };
 use infrastructure::PostgresQueueRepository;
 
@@ -78,15 +78,21 @@ impl QueueModule {
         Ok(())
     }
 
-    async fn requeue_timed_out_messages(
+    async fn process_timed_out_messages(
         &self,
         batch_size: u32,
-    ) -> Result<u64, RequeueTimedOutMessagesError> {
-        let requeued = execute_requeue_timed_out_messages(&self.repository, batch_size).await?;
+    ) -> Result<TimeoutProcessingSummary, ProcessTimedOutMessagesError> {
+        let summary = execute_process_timed_out_messages(&self.repository, batch_size).await?;
 
-        self.queue_metrics.messages_requeued(requeued);
+        for queue_summary in summary.per_queue() {
+            self.queue_metrics
+                .messages_requeued(queue_summary.queue_name(), queue_summary.requeued());
 
-        Ok(requeued)
+            self.queue_metrics
+                .messages_dead_lettered(queue_summary.queue_name(), queue_summary.dead_lettered());
+        }
+
+        Ok(summary)
     }
 }
 

@@ -44,6 +44,7 @@ pub(crate) struct QueueMetrics {
     messages_enqueued: Counter<u64>,
     messages_acknowledged: Counter<u64>,
     messages_requeued: Counter<u64>,
+    messages_dead_lettered: Counter<u64>,
 }
 
 impl QueueMetrics {
@@ -66,10 +67,17 @@ impl QueueMetrics {
             .with_unit("{message}")
             .build();
 
+        let messages_dead_lettered = meter
+            .u64_counter("queue.messages.dead_lettered")
+            .with_description("Number of messages moved to dead-letter storage")
+            .with_unit("{message}")
+            .build();
+
         Self {
             messages_enqueued,
             messages_acknowledged,
             messages_requeued,
+            messages_dead_lettered,
         }
     }
 
@@ -88,9 +96,17 @@ impl QueueMetrics {
             .add(1, &[KeyValue::new("queue.name", queue_name.to_owned())]);
     }
 
-    pub(crate) fn messages_requeued(&self, count: u64) {
+    pub(crate) fn messages_requeued(&self, queue_name: &str, count: u64) {
         if count > 0 {
-            self.messages_requeued.add(count, &[]);
+            self.messages_requeued
+                .add(count, &[KeyValue::new("queue.name", queue_name.to_owned())]);
+        }
+    }
+
+    pub(crate) fn messages_dead_lettered(&self, queue_name: &str, count: u64) {
+        if count > 0 {
+            self.messages_dead_lettered
+                .add(count, &[KeyValue::new("queue.name", queue_name.to_owned())]);
         }
     }
 }

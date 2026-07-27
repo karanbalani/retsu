@@ -116,7 +116,7 @@ mod tests {
         MessageRepository, MessageValidationError, execute,
     };
     use crate::modules::queue::application::repository::{
-        AcknowledgeMessageOutcome, DequeueMessageOutcome,
+        AcknowledgeMessageOutcome, DequeueMessageOutcome, TimeoutProcessingSummary,
     };
 
     struct FakeMessageRepository {
@@ -174,8 +174,11 @@ mod tests {
             unreachable!("enqueue tests should not acknowledge messages")
         }
 
-        async fn requeue_timed_out_messages(&self, _batch_size: u32) -> Result<u64, anyhow::Error> {
-            unreachable!("enqueue tests should not requeue messages")
+        async fn process_timed_out_messages(
+            &self,
+            _batch_size: u32,
+        ) -> Result<TimeoutProcessingSummary, anyhow::Error> {
+            unreachable!("this test should not process timed-out messages")
         }
     }
 
