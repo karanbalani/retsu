@@ -8,6 +8,10 @@ PostgreSQL uses a 20 GiB `civo-volume` claim. Dragonfly is an ephemeral,
 memory-bounded cache. The namespace and database are intended for disposable
 performance tests, not production data.
 
+Non-sensitive Retsu settings are supplied as `RETSU_*` environment variables
+from the `retsu-config` ConfigMap. The database URL is supplied separately from
+the `retsu-secrets` Secret. No runtime configuration file is mounted.
+
 ## Prepare
 
 Set `images[0].newTag` in `kustomization.yaml` to the immutable tag published

@@ -6,45 +6,25 @@ metadata:
     app.kubernetes.io/name: retsu
     app.kubernetes.io/part-of: retsu
 data:
-  retsu.yaml: |
-    environment: production
-
-    http:
-      bind_address: 0.0.0.0
-      port: 2424
-
-    logging:
-      filter: info
-      format: json
-
-    telemetry:
-      metrics:
-        max_queues: 10000
-      traces:
-        enabled: false
-        filter: info
-        endpoint: http://127.0.0.1:4317
-        timeout_seconds: 5
-
-    cache:
-      in_memory:
-        enabled: true
-        regions:
-          queue_names:
-            max_entries: 10000
-            max_capacity_bytes: 8388608
-      distributed:
-        enabled: true
-        url: redis://dragonfly:6379
-        connection_timeout_milliseconds: 500
-        command_timeout_milliseconds: 20
-
-    database:
-      max_connections: 10
-      acquire_timeout_seconds: 5
-
-    worker:
-      shutdown_timeout_seconds: 30
-      management:
-        bind_address: 0.0.0.0
-        port: 24247
+  RETSU_ENVIRONMENT: production
+  RETSU_HTTP__BIND_ADDRESS: 0.0.0.0
+  RETSU_HTTP__PORT: "2424"
+  RETSU_LOGGING__FILTER: info
+  RETSU_LOGGING__FORMAT: json
+  RETSU_TELEMETRY__METRICS__MAX_QUEUES: "10000"
+  RETSU_TELEMETRY__TRACES__ENABLED: "false"
+  RETSU_TELEMETRY__TRACES__FILTER: info
+  RETSU_TELEMETRY__TRACES__ENDPOINT: http://127.0.0.1:4317
+  RETSU_TELEMETRY__TRACES__TIMEOUT_SECONDS: "5"
+  RETSU_CACHE__IN_MEMORY__ENABLED: "true"
+  RETSU_CACHE__IN_MEMORY__REGIONS__QUEUE_NAMES__MAX_ENTRIES: "10000"
+  RETSU_CACHE__IN_MEMORY__REGIONS__QUEUE_NAMES__MAX_CAPACITY_BYTES: "8388608"
+  RETSU_CACHE__DISTRIBUTED__ENABLED: "true"
+  RETSU_CACHE__DISTRIBUTED__URL: redis://dragonfly:6379
+  RETSU_CACHE__DISTRIBUTED__CONNECTION_TIMEOUT_MILLISECONDS: "500"
+  RETSU_CACHE__DISTRIBUTED__COMMAND_TIMEOUT_MILLISECONDS: "20"
+  RETSU_DATABASE__MAX_CONNECTIONS: "10"
+  RETSU_DATABASE__ACQUIRE_TIMEOUT_SECONDS: "5"
+  RETSU_WORKER__SHUTDOWN_TIMEOUT_SECONDS: "30"
+  RETSU_WORKER__MANAGEMENT__BIND_ADDRESS: 0.0.0.0
+  RETSU_WORKER__MANAGEMENT__PORT: "24247"

@@ -46,9 +46,10 @@ spec:
           command:
             - retsu
           args:
-            - --config
-            - /etc/retsu/retsu.yaml
             - api
+          envFrom:
+            - configMapRef:
+                name: retsu-config
           env:
             - name: RETSU_DATABASE__URL
               valueFrom:
@@ -94,15 +95,9 @@ spec:
               drop:
                 - ALL
           volumeMounts:
-            - name: config
-              mountPath: /etc/retsu
-              readOnly: true
             - name: tmp
               mountPath: /tmp
       volumes:
-        - name: config
-          configMap:
-            name: retsu-config
         - name: tmp
           emptyDir:
             sizeLimit: 32Mi
