@@ -391,6 +391,13 @@ impl IntegrationSystem {
         expect_body(response, StatusCode::OK, "read worker metrics").await
     }
 
+    pub async fn stop_distributed_cache(&self) -> anyhow::Result<()> {
+        self._distributed_cache
+            .stop_with_timeout(Some(0))
+            .await
+            .context("failed to stop the integration-test distributed cache")
+    }
+
     pub async fn message_exists(&self, message_id: Uuid) -> anyhow::Result<bool> {
         sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM queue_message WHERE id = $1)")
             .bind(message_id)

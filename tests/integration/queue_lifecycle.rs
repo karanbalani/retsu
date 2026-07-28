@@ -30,11 +30,7 @@ async fn queue_lifecycle_crosses_real_process_and_database_boundaries() -> anyho
     assert_eq!(first_high.delivery_attempts, 1);
 
     system
-        .acknowledge_message(
-            other_queue_id,
-            first_high.id,
-            first_high.receipt_handle,
-        )
+        .acknowledge_message(other_queue_id, first_high.id, first_high.receipt_handle)
         .await?;
 
     assert!(system.message_exists(first_high.id).await?);
