@@ -33,3 +33,10 @@ opentelemetry_sdk = { version = "0.32.1", features = ["testing"] }
 reqwest = { version = "0.13.4", default-features = false, features = ["json"] }
 tempfile = "3.27.0"
 testcontainers-modules = { version = "0.15.0", features = ["postgres"] }
+
+[profile.release]
+codegen-units = 1
+lto = "fat"
+opt-level = 3
+panic = "abort"
+strip = "symbols"

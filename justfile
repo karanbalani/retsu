@@ -47,6 +47,10 @@ env-init:
 build:
     cargo build --locked --all-targets --all-features
 
+# Build the optimized production binary.
+release-build:
+    cargo build --locked --release --bin retsu
+
 # Type-check all targets and features.
 check:
     cargo check --locked --all-targets --all-features
