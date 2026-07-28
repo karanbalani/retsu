@@ -42,14 +42,6 @@ fn benchmark_queue_operations(criterion: &mut Criterion) {
             &format!("benchmark-dequeue-depth-{depth}"),
         );
 
-        runtime
-            .block_on(system.seed_ready_messages_directly(
-                queue_id,
-                depth,
-                PAYLOAD_SIZE_BYTES as u32,
-            ))
-            .expect("dequeue benchmark messages should be seeded");
-
         (depth, queue_id)
     });
 
@@ -66,7 +58,7 @@ fn benchmark_queue_operations(criterion: &mut Criterion) {
             format!("dequeue/1_kib_depth_{}", format_depth(depth)),
             |bencher| {
                 bencher.to_async(&runtime).iter_custom(|iterations| {
-                    measure_dequeue_iterations(&system, queue_id, iterations)
+                    measure_dequeue_iterations(&system, queue_id, depth, iterations)
                 });
             },
         );
@@ -160,8 +152,14 @@ async fn measure_enqueue_iterations(
 async fn measure_dequeue_iterations(
     system: &IntegrationSystem,
     queue_id: uuid::Uuid,
+    queue_depth: u32,
     iterations: u64,
 ) -> Duration {
+    system
+        .reset_dequeue_fixture_directly(queue_id, queue_depth, PAYLOAD_SIZE_BYTES as u32)
+        .await
+        .expect("dequeue benchmark fixture should be reset");
+
     let mut measured = Duration::ZERO;
 
     for _ in 0..iterations {
