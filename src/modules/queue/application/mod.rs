@@ -16,8 +16,7 @@ pub(in crate::modules::queue) use repository::{
 };
 
 pub(in crate::modules::queue) use dequeue_message::{
-    DequeueMessageCommand, DequeueMessageError, DequeueMessageResult, DequeuedMessage,
-    execute as execute_dequeue_message,
+    DequeueMessageCommand, DequeueMessageError, DequeuedMessage, execute as execute_dequeue_message,
 };
 
 pub(in crate::modules::queue) use enqueue_message::{
