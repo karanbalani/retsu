@@ -94,27 +94,18 @@ CHECK (
     OR last_delivered_at >= enqueued_at
 );
 
--- Matches the first dequeue candidate: queue-local READY rows in priority/FIFO
--- order. The partial predicate keeps never-delivered claims compact.
-CREATE INDEX idx_queue_message_ready_claim
+-- Supplies every dequeue candidate in one queue-local priority/FIFO order.
+-- Dequeue scans this index once and locks only the first eligible row, avoiding
+-- separate READY and IN_FLIGHT locks that could hide the unselected row from a
+-- concurrent consumer. Lease and expiry eligibility remain residual predicates
+-- because their time ranges cannot also provide this delivery order.
+CREATE INDEX idx_queue_message_dequeue_claim
 ON queue_message (
     queue_id,
     priority DESC,
     enqueue_order ASC
 )
-WHERE state = 'READY';
-
--- Supplies elapsed IN_FLIGHT retry candidates in the same priority/FIFO order.
--- `available_after` stays out of the key because combining its range predicate
--- with this ordering would not satisfy both paths efficiently; it is checked
--- as a residual predicate after the queue/state slice is reached.
-CREATE INDEX idx_queue_message_in_flight_retry_claim
-ON queue_message (
-    queue_id,
-    priority DESC,
-    enqueue_order ASC
-)
-WHERE state = 'IN_FLIGHT';
+WHERE state IN ('READY', 'IN_FLIGHT');
 
 -- Locates elapsed, exhausted leases for dequeue's bounded DLQ maintenance in
 -- queue/time/id order. `id` provides deterministic locking for equal times.

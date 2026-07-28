@@ -438,57 +438,27 @@ impl QueueRepository for PostgresQueueRepository {
                 FROM dead_lettered
                 RETURNING id
             ),
-            ready_candidate AS MATERIALIZED (
-                SELECT
-                    message.id,
-                    message.priority,
-                    message.enqueue_order,
-                    target_queue.visibility_timeout_seconds
-                FROM queue_message AS message
-                JOIN target_queue
-                    ON target_queue.id = message.queue_id
-                WHERE message.state = 'READY'
-                  AND message.expires_at > CURRENT_TIMESTAMP
-                  AND message.delivery_attempts
-                        < target_queue.max_delivery_attempts
-                ORDER BY
-                    message.priority DESC,
-                    message.enqueue_order ASC
-                FOR UPDATE OF message SKIP LOCKED
-                LIMIT 1
-            ),
-            retry_candidate AS MATERIALIZED (
-                SELECT
-                    message.id,
-                    message.priority,
-                    message.enqueue_order,
-                    target_queue.visibility_timeout_seconds
-                FROM queue_message AS message
-                JOIN target_queue
-                    ON target_queue.id = message.queue_id
-                WHERE message.state = 'IN_FLIGHT'
-                  AND message.available_after <= CURRENT_TIMESTAMP
-                  AND message.expires_at > CURRENT_TIMESTAMP
-                  AND message.delivery_attempts
-                        < target_queue.max_delivery_attempts
-                ORDER BY
-                    message.priority DESC,
-                    message.enqueue_order ASC
-                FOR UPDATE OF message SKIP LOCKED
-                LIMIT 1
-            ),
             candidate AS MATERIALIZED (
-                SELECT *
-                FROM ready_candidate
-
-                UNION ALL
-
-                SELECT *
-                FROM retry_candidate
-
+                SELECT
+                    message.id,
+                    message.priority,
+                    message.enqueue_order,
+                    target_queue.visibility_timeout_seconds
+                FROM queue_message AS message
+                JOIN target_queue
+                    ON target_queue.id = message.queue_id
+                WHERE message.state IN ('READY', 'IN_FLIGHT')
+                  AND message.expires_at > CURRENT_TIMESTAMP
+                  AND message.delivery_attempts
+                        < target_queue.max_delivery_attempts
+                  AND (
+                      message.state = 'READY'
+                      OR message.available_after <= CURRENT_TIMESTAMP
+                  )
                 ORDER BY
-                    priority DESC,
-                    enqueue_order ASC
+                    message.priority DESC,
+                    message.enqueue_order ASC
+                FOR UPDATE OF message SKIP LOCKED
                 LIMIT 1
             ),
             leased AS (

@@ -197,7 +197,10 @@ impl PostgresQueueStateCollector {
                     EXTRACT(
                         EPOCH FROM (
                             CURRENT_TIMESTAMP
-                            - oldest_ready.enqueued_at
+                            - LEAST(
+                                oldest_ready.enqueued_at,
+                                oldest_retryable.enqueued_at
+                            )
                         )
                     )::DOUBLE PRECISION,
                     0.0
@@ -227,22 +230,25 @@ impl PostgresQueueStateCollector {
                 FROM queue_message AS message
                 WHERE message.queue_id = queue.id
                   AND message.priority = priorities.priority
-                  AND (
-                      (
-                          message.state = 'READY'
-                          AND message.expires_at > CURRENT_TIMESTAMP
-                      )
-                      OR (
-                          message.state = 'IN_FLIGHT'
-                          AND message.available_after <= CURRENT_TIMESTAMP
-                          AND message.expires_at > CURRENT_TIMESTAMP
-                          AND message.delivery_attempts
-                                < queue.max_delivery_attempts
-                      )
-                  )
+                  AND message.state = 'READY'
+                  AND message.expires_at > CURRENT_TIMESTAMP
                 ORDER BY message.enqueued_at
                 LIMIT 1
             ) AS oldest_ready
+                ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT message.enqueued_at
+                FROM queue_message AS message
+                WHERE message.queue_id = queue.id
+                  AND message.priority = priorities.priority
+                  AND message.state = 'IN_FLIGHT'
+                  AND message.available_after <= CURRENT_TIMESTAMP
+                  AND message.expires_at > CURRENT_TIMESTAMP
+                  AND message.delivery_attempts
+                        < queue.max_delivery_attempts
+                ORDER BY message.enqueued_at
+                LIMIT 1
+            ) AS oldest_retryable
                 ON TRUE
             LEFT JOIN LATERAL (
                 SELECT message.enqueued_at

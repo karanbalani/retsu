@@ -11,7 +11,7 @@ use anyhow::{Context as _, ensure};
 use reqwest::{Client, StatusCode};
 use serde::Deserialize;
 use serde_json::json;
-use sqlx::{PgPool, postgres::PgPoolOptions};
+use sqlx::{PgPool, Postgres as SqlxPostgres, pool::PoolConnection, postgres::PgPoolOptions};
 use tempfile::TempDir;
 use testcontainers_modules::{
     postgres::Postgres,
@@ -28,6 +28,8 @@ const POSTGRES_PORT: u16 = 5432;
 const DISTRIBUTED_CACHE_PORT: u16 = 6379;
 const DRAGONFLY_IMAGE: &str = "docker.dragonflydb.io/dragonflydb/dragonfly";
 const DRAGONFLY_TAG: &str = "v1.38.0";
+pub const DEQUEUE_PAUSE_LOCK_KEY: i64 = 363_636;
+pub const DEQUEUE_PAUSE_PAYLOAD: &str = "integration-pause-dequeue";
 
 pub struct IntegrationSystem {
     processes: Vec<ManagedProcess>,
@@ -407,6 +409,107 @@ impl IntegrationSystem {
                     .context("distributed queue details were not valid JSON")
             })
             .transpose()
+    }
+
+    pub async fn install_dequeue_pause_trigger(&self) -> anyhow::Result<()> {
+        sqlx::query(
+            r#"
+            CREATE FUNCTION integration_pause_selected_dequeue()
+            RETURNS TRIGGER
+            LANGUAGE PLPGSQL
+            AS $$
+            BEGIN
+                IF convert_from(NEW.payload, 'UTF8')
+                    = 'integration-pause-dequeue'
+                THEN
+                    PERFORM pg_advisory_xact_lock(363636);
+                END IF;
+
+                RETURN NULL;
+            END;
+            $$
+            "#,
+        )
+        .execute(&self.database_pool)
+        .await
+        .context("failed to install the dequeue pause function")?;
+
+        sqlx::query(
+            r#"
+            CREATE TRIGGER integration_pause_selected_dequeue_after_update
+            AFTER UPDATE OF receipt_handle ON queue_message
+            FOR EACH ROW
+            WHEN (OLD.receipt_handle IS DISTINCT FROM NEW.receipt_handle)
+            EXECUTE FUNCTION integration_pause_selected_dequeue()
+            "#,
+        )
+        .execute(&self.database_pool)
+        .await
+        .context("failed to install the dequeue pause trigger")?;
+
+        Ok(())
+    }
+
+    pub async fn hold_advisory_lock(
+        &self,
+        lock_key: i64,
+    ) -> anyhow::Result<PoolConnection<SqlxPostgres>> {
+        let mut connection = self
+            .database_pool
+            .acquire()
+            .await
+            .context("failed to acquire the advisory-lock test connection")?;
+
+        sqlx::query("SELECT pg_advisory_lock($1)")
+            .bind(lock_key)
+            .execute(&mut *connection)
+            .await
+            .context("failed to hold the dequeue pause advisory lock")?;
+
+        connection.close_on_drop();
+
+        Ok(connection)
+    }
+
+    pub async fn wait_for_advisory_lock_waiter(&self) -> anyhow::Result<()> {
+        eventually(
+            "the selected dequeue to wait on the test advisory lock",
+            Duration::from_secs(5),
+            || async {
+                let waiting = sqlx::query_scalar::<_, bool>(
+                    r#"
+                    SELECT EXISTS (
+                        SELECT 1
+                        FROM pg_stat_activity
+                        WHERE datname = CURRENT_DATABASE()
+                          AND wait_event_type = 'Lock'
+                          AND wait_event = 'advisory'
+                    )
+                    "#,
+                )
+                .fetch_one(&self.database_pool)
+                .await
+                .context("failed to inspect advisory-lock waiters")?;
+
+                Ok(waiting.then_some(()))
+            },
+        )
+        .await
+    }
+
+    pub async fn release_advisory_lock(
+        &self,
+        connection: &mut PoolConnection<SqlxPostgres>,
+        lock_key: i64,
+    ) -> anyhow::Result<()> {
+        let unlocked = sqlx::query_scalar::<_, bool>("SELECT pg_advisory_unlock($1)")
+            .bind(lock_key)
+            .fetch_one(&mut **connection)
+            .await
+            .context("failed to release the dequeue pause advisory lock")?;
+
+        ensure!(unlocked, "the dequeue pause advisory lock was not held");
+        Ok(())
     }
 
     pub async fn dead_letter_reason(&self, message_id: Uuid) -> anyhow::Result<Option<String>> {

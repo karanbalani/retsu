@@ -1,6 +1,8 @@
 use std::time::Duration;
 
-use super::harness::{IntegrationSystem, eventually, unique_queue_name};
+use super::harness::{
+    DEQUEUE_PAUSE_LOCK_KEY, DEQUEUE_PAUSE_PAYLOAD, IntegrationSystem, eventually, unique_queue_name,
+};
 
 #[tokio::test]
 async fn dequeue_retries_timed_out_messages_then_dead_letters_them() -> anyhow::Result<()> {
@@ -49,6 +51,49 @@ async fn dequeue_retries_timed_out_messages_then_dead_letters_them() -> anyhow::
 
     assert_eq!(reason, "MAX_DELIVERY_ATTEMPTS_EXHAUSTED");
     assert!(!system.message_exists(message_id).await?);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn concurrent_dequeues_do_not_lock_an_unselected_state_candidate() -> anyhow::Result<()> {
+    let system = IntegrationSystem::start().await?;
+    let queue_name = unique_queue_name("mixed-state-concurrent-dequeue");
+
+    let queue_id = system.create_queue(&queue_name, 1, 3, 60).await?;
+    let retryable_id = system
+        .enqueue_message(queue_id, DEQUEUE_PAUSE_PAYLOAD, "HIGH", None)
+        .await?;
+
+    let first_delivery = system
+        .dequeue_message(queue_id)
+        .await?
+        .expect("the retry candidate should receive its first lease");
+    assert_eq!(first_delivery.id, retryable_id);
+
+    let ready_id = system
+        .enqueue_message(queue_id, "ready-during-retry", "LOW", None)
+        .await?;
+
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    system.install_dequeue_pause_trigger().await?;
+
+    let mut pause_lock = system.hold_advisory_lock(DEQUEUE_PAUSE_LOCK_KEY).await?;
+
+    let (retry, ready) = tokio::join!(system.dequeue_message(queue_id), async {
+        system.wait_for_advisory_lock_waiter().await?;
+        let delivery = system.dequeue_message(queue_id).await;
+        system
+            .release_advisory_lock(&mut pause_lock, DEQUEUE_PAUSE_LOCK_KEY)
+            .await?;
+        delivery
+    },);
+
+    let retry = retry?.expect("the elapsed high-priority lease should be retried");
+    let ready = ready?.expect("the concurrent dequeue should claim the READY message");
+
+    assert_eq!(retry.id, retryable_id);
+    assert_eq!(ready.id, ready_id);
 
     Ok(())
 }
