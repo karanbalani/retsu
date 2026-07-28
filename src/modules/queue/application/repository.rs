@@ -245,19 +245,19 @@ pub(in crate::modules::queue) trait QueueRepository {
 pub(in crate::modules::queue) trait MessageRepository {
     async fn enqueue_message(
         &self,
-        queue_name: &str,
+        queue_id: Uuid,
         message: &Message,
     ) -> Result<EnqueueMessageOutcome, anyhow::Error>;
 
     async fn dequeue_message(
         &self,
-        queue_name: &str,
+        queue_id: Uuid,
         receipt_handle: Uuid,
     ) -> Result<DequeueMessageOutcome, anyhow::Error>;
 
     async fn acknowledge_message(
         &self,
-        queue_name: &str,
+        queue_id: Uuid,
         message_id: Uuid,
         receipt_handle: Uuid,
     ) -> Result<AcknowledgeMessageOutcome, anyhow::Error>;

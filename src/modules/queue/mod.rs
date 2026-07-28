@@ -79,7 +79,7 @@ impl QueueModule {
 
         self.instrumentation
             .commands()
-            .message_enqueued(message.queue_name(), message.priority());
+            .message_enqueued(message.queue_id(), message.priority());
 
         Ok(message)
     }
@@ -95,13 +95,13 @@ impl QueueModule {
         &self,
         command: AcknowledgeMessageCommand,
     ) -> Result<(), AcknowledgeMessageError> {
-        let queue_name = command.queue_name().to_owned();
+        let queue_id = command.queue_id();
 
         execute_acknowledge_message(&self.repository, command).await?;
 
         self.instrumentation
             .commands()
-            .message_acknowledged(&queue_name);
+            .message_acknowledged(queue_id);
 
         Ok(())
     }

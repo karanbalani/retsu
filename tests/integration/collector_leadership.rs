@@ -7,19 +7,19 @@ async fn state_collector_leadership_fails_over_between_processes() -> anyhow::Re
     let mut system = IntegrationSystem::start().await?;
     let queue_name = unique_queue_name("collector-leadership");
 
-    system.create_queue(&queue_name, 1, 3, 300).await?;
+    let queue_id = system.create_queue(&queue_name, 1, 3, 300).await?;
 
     let timed_out_id = system
-        .enqueue_message(&queue_name, "timed-out", "HIGH", None)
+        .enqueue_message(queue_id, "timed-out", "HIGH", None)
         .await?;
     let timed_out = system
-        .dequeue_message(&queue_name)
+        .dequeue_message(queue_id)
         .await?
         .expect("the first message should be delivered");
     assert_eq!(timed_out.id, timed_out_id);
 
     system
-        .enqueue_message(&queue_name, "ready", "HIGH", None)
+        .enqueue_message(queue_id, "ready", "HIGH", None)
         .await?;
 
     tokio::time::sleep(Duration::from_secs(2)).await;

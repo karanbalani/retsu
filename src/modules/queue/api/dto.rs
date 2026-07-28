@@ -49,16 +49,16 @@ impl From<CreatedQueue> for CreateQueueResponse {
 
 #[derive(Debug, Deserialize)]
 pub(super) struct QueuePath {
-    queue_name: String,
+    queue_id: Uuid,
 }
 
 impl QueuePath {
-    pub(super) fn into_queue_name(self) -> String {
-        self.queue_name
+    pub(super) fn into_queue_id(self) -> Uuid {
+        self.queue_id
     }
 
     pub(super) fn into_dequeue_command(self) -> DequeueMessageCommand {
-        DequeueMessageCommand::new(self.queue_name)
+        DequeueMessageCommand::new(self.queue_id)
     }
 }
 
@@ -71,8 +71,8 @@ pub(super) struct EnqueueMessageRequest {
 }
 
 impl EnqueueMessageRequest {
-    pub(super) fn into_command(self, queue_name: String) -> EnqueueMessageCommand {
-        EnqueueMessageCommand::new(queue_name, self.payload, self.priority, self.ttl_seconds)
+    pub(super) fn into_command(self, queue_id: Uuid) -> EnqueueMessageCommand {
+        EnqueueMessageCommand::new(queue_id, self.payload, self.priority, self.ttl_seconds)
     }
 }
 
@@ -110,7 +110,7 @@ impl From<DequeuedMessage> for DequeueMessageResponse {
 
 #[derive(Debug, Deserialize)]
 pub(super) struct MessagePath {
-    queue_name: String,
+    queue_id: Uuid,
     message_id: Uuid,
 }
 
@@ -122,6 +122,6 @@ pub(super) struct AcknowledgeMessageRequest {
 
 impl AcknowledgeMessageRequest {
     pub(super) fn into_command(self, path: MessagePath) -> AcknowledgeMessageCommand {
-        AcknowledgeMessageCommand::new(path.queue_name, path.message_id, self.receipt_handle)
+        AcknowledgeMessageCommand::new(path.queue_id, path.message_id, self.receipt_handle)
     }
 }

@@ -2,7 +2,7 @@
 
 This guide explains why Retsu configures metric cardinality in the application and how to choose a queue budget.
 
-**Cardinality** is the number of distinct label combinations produced by one metric. A queue name and priority together create one combination.
+**Cardinality** is the number of distinct label combinations produced by one metric. A queue identity and priority together create one combination.
 
 Related guides:
 
@@ -19,7 +19,7 @@ series per queue-and-priority metric = queues × 3
 
 The Rust OpenTelemetry SDK defaults to 2,000 combinations per instrument. A metric with three priorities reaches that limit at roughly 667 queues.
 
-After the limit is reached, additional combinations can be combined into an `otel.metric.overflow` series. Per-queue dashboards then lose the queue names that overflowed.
+After the limit is reached, additional combinations can be combined into an `otel.metric.overflow` series. Per-queue dashboards then lose the queue identities that overflowed.
 
 ## Why this is application configuration
 
@@ -67,11 +67,13 @@ Retsu derives a limit from the labels each instrument can produce:
 
 Queue-and-priority instruments:
 
-- `queue.messages.enqueued`
+- `queue.messages.enqueued` (`queue.id`)
 - `queue.messages.ready`
 - `queue.messages.in_flight`
 - `queue.oldest_ready_message.age`
 - `queue.oldest_in_flight_message.age`
+
+The state instruments use `queue.name`.
 
 Queue-and-delivery-history instrument:
 
@@ -79,9 +81,11 @@ Queue-and-delivery-history instrument:
 
 Queue-only instruments:
 
-- `queue.messages.acknowledged`
+- `queue.messages.acknowledged` (`queue.id`)
 - `queue.messages.requeued`
 - `queue.messages.dead_lettered`
+
+The retry and dead-letter worker instruments use `queue.name`.
 
 For the default of 10,000 queues, each queue-and-priority instrument can retain 30,000 combinations.
 
@@ -98,6 +102,7 @@ Per-instrument multipliers keep the supported queue count consistent without inf
 Good labels have a bounded and understood set of values:
 
 - queue name;
+- queue ID;
 - `HIGH`, `MEDIUM`, or `LOW`;
 - the two expiry delivery-history values;
 - success or error outcomes.
@@ -114,7 +119,7 @@ Those values can create a new series for every operation and exhaust memory rega
 
 ## Choosing `max_queues`
 
-Choose a value above the number of distinct queue names one process is expected to observe.
+Choose a value above the number of distinct queues one process is expected to observe.
 
 Consider:
 

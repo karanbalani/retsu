@@ -16,7 +16,7 @@ use crate::modules::queue::application::repository::{
 struct FakeMessageRepository {
     enqueue_outcome: EnqueueMessageOutcome,
     enqueue_calls: AtomicUsize,
-    enqueued_message: Mutex<Option<(String, Message)>>,
+    enqueued_message: Mutex<Option<(Uuid, Message)>>,
 }
 
 impl FakeMessageRepository {
@@ -36,14 +36,14 @@ impl FakeMessageRepository {
 impl MessageRepository for FakeMessageRepository {
     async fn enqueue_message(
         &self,
-        queue_name: &str,
+        queue_id: Uuid,
         message: &Message,
     ) -> Result<EnqueueMessageOutcome, anyhow::Error> {
         self.enqueue_calls.fetch_add(1, Ordering::Relaxed);
         self.enqueued_message
             .lock()
             .expect("enqueued message lock should not be poisoned")
-            .replace((queue_name.to_owned(), message.clone()));
+            .replace((queue_id, message.clone()));
 
         Ok(match self.enqueue_outcome {
             EnqueueMessageOutcome::Enqueued => EnqueueMessageOutcome::Enqueued,
@@ -53,7 +53,7 @@ impl MessageRepository for FakeMessageRepository {
 
     async fn dequeue_message(
         &self,
-        _queue_name: &str,
+        _queue_id: Uuid,
         _receipt_handle: Uuid,
     ) -> Result<DequeueMessageOutcome, anyhow::Error> {
         unreachable!("enqueue tests should not dequeue messages")
@@ -61,7 +61,7 @@ impl MessageRepository for FakeMessageRepository {
 
     async fn acknowledge_message(
         &self,
-        _queue_name: &str,
+        _queue_id: Uuid,
         _message_id: Uuid,
         _receipt_handle: Uuid,
     ) -> Result<AcknowledgeMessageOutcome, anyhow::Error> {
@@ -85,9 +85,10 @@ impl MessageRepository for FakeMessageRepository {
 
 #[tokio::test]
 async fn persists_and_returns_the_effective_message() {
+    let queue_id = Uuid::now_v7();
     let repository = FakeMessageRepository::new(EnqueueMessageOutcome::Enqueued);
     let command = EnqueueMessageCommand::new(
-        "email-delivery".to_owned(),
+        queue_id,
         r#"{"job":42}"#.to_owned(),
         "HIGH".to_owned(),
         Some(60),
@@ -98,18 +99,18 @@ async fn persists_and_returns_the_effective_message() {
         .expect("valid message should be enqueued");
 
     assert_eq!(repository.enqueue_calls(), 1);
-    assert_eq!(enqueued.queue_name(), "email-delivery");
+    assert_eq!(enqueued.queue_id(), queue_id);
     assert_eq!(enqueued.priority(), "HIGH");
 
     let persisted = repository
         .enqueued_message
         .lock()
         .expect("enqueued message lock should not be poisoned");
-    let (queue_name, message) = persisted
+    let (persisted_queue_id, message) = persisted
         .as_ref()
         .expect("message should be sent to the repository");
 
-    assert_eq!(queue_name, enqueued.queue_name());
+    assert_eq!(*persisted_queue_id, queue_id);
     assert_eq!(message.id(), enqueued.id());
     assert_eq!(message.payload(), r#"{"job":42}"#);
     assert_eq!(message.priority().as_str(), enqueued.priority());
@@ -119,15 +120,11 @@ async fn persists_and_returns_the_effective_message() {
 #[tokio::test]
 async fn rejects_invalid_messages_without_calling_the_repository() {
     let repository = FakeMessageRepository::new(EnqueueMessageOutcome::Enqueued);
+    let queue_id = Uuid::now_v7();
 
     let invalid_priority = execute(
         &repository,
-        EnqueueMessageCommand::new(
-            "email-delivery".to_owned(),
-            "payload".to_owned(),
-            "URGENT".to_owned(),
-            None,
-        ),
+        EnqueueMessageCommand::new(queue_id, "payload".to_owned(), "URGENT".to_owned(), None),
     )
     .await;
     assert!(matches!(
@@ -139,12 +136,7 @@ async fn rejects_invalid_messages_without_calling_the_repository() {
 
     let invalid_ttl = execute(
         &repository,
-        EnqueueMessageCommand::new(
-            "email-delivery".to_owned(),
-            "payload".to_owned(),
-            "HIGH".to_owned(),
-            Some(0),
-        ),
+        EnqueueMessageCommand::new(queue_id, "payload".to_owned(), "HIGH".to_owned(), Some(0)),
     )
     .await;
     assert!(matches!(
@@ -161,7 +153,7 @@ async fn rejects_invalid_messages_without_calling_the_repository() {
 async fn reports_when_the_target_queue_does_not_exist() {
     let repository = FakeMessageRepository::new(EnqueueMessageOutcome::QueueNotFound);
     let command = EnqueueMessageCommand::new(
-        "missing-queue".to_owned(),
+        Uuid::now_v7(),
         "payload".to_owned(),
         "MEDIUM".to_owned(),
         None,

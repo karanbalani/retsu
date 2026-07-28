@@ -8,15 +8,15 @@ pub(super) fn configure(configuration: &mut web::ServiceConfig) {
         web::scope("/v1/queues")
             .route("", web::post().to(handlers::create_queue))
             .route(
-                "/{queue_name}/messages",
+                "/{queue_id}/messages",
                 web::post().to(handlers::enqueue_message),
             )
             .route(
-                "/{queue_name}/messages/dequeue",
+                "/{queue_id}/messages/dequeue",
                 web::post().to(handlers::dequeue_message),
             )
             .route(
-                "/{queue_name}/messages/{message_id}/acknowledge",
+                "/{queue_id}/messages/{message_id}/acknowledge",
                 web::post().to(handlers::acknowledge_message),
             ),
     );

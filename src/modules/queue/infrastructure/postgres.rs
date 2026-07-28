@@ -153,7 +153,7 @@ impl MessageRepository for PostgresQueueRepository {
     )]
     async fn enqueue_message(
         &self,
-        queue_name: &str,
+        queue_id: Uuid,
         message: &Message,
     ) -> Result<EnqueueMessageOutcome, anyhow::Error> {
         let ttl_seconds = message.ttl_seconds().map(i64::from);
@@ -181,7 +181,7 @@ impl MessageRepository for PostgresQueueRepository {
                         * INTERVAL '1 second'
                     )
             FROM queue
-            WHERE queue.name = $5
+            WHERE queue.id = $5
             RETURNING id
             "#,
         )
@@ -189,7 +189,7 @@ impl MessageRepository for PostgresQueueRepository {
         .bind(message.payload().as_bytes())
         .bind(message.priority().rank())
         .bind(ttl_seconds)
-        .bind(queue_name)
+        .bind(queue_id)
         .fetch_optional(&mut *connection)
         .await;
 
@@ -222,7 +222,7 @@ impl MessageRepository for PostgresQueueRepository {
     )]
     async fn dequeue_message(
         &self,
-        queue_name: &str,
+        queue_id: Uuid,
         receipt_handle: Uuid,
     ) -> Result<DequeueMessageOutcome, anyhow::Error> {
         let mut connection = database::acquire(&self.pool, &self.metrics).await?;
@@ -234,7 +234,7 @@ impl MessageRepository for PostgresQueueRepository {
             WITH target_queue AS MATERIALIZED (
                 SELECT id, visibility_timeout_seconds
                 FROM queue
-                WHERE name = $1
+                WHERE id = $1
             ),
             candidate AS (
                 SELECT
@@ -285,7 +285,7 @@ impl MessageRepository for PostgresQueueRepository {
             LEFT JOIN leased ON TRUE
             "#,
         )
-        .bind(queue_name)
+        .bind(queue_id)
         .bind(receipt_handle)
         .fetch_one(&mut *connection)
         .await;
@@ -344,7 +344,7 @@ impl MessageRepository for PostgresQueueRepository {
     )]
     async fn acknowledge_message(
         &self,
-        queue_name: &str,
+        queue_id: Uuid,
         message_id: Uuid,
         receipt_handle: Uuid,
     ) -> Result<AcknowledgeMessageOutcome, anyhow::Error> {
@@ -357,19 +357,17 @@ impl MessageRepository for PostgresQueueRepository {
             WITH target_queue AS MATERIALIZED (
                 SELECT id
                 FROM queue
-                WHERE name = $1
+                WHERE id = $1
             ),
             target_message AS MATERIALIZED (
                 SELECT message.id
                 FROM queue_message AS message
-                JOIN target_queue
-                    ON target_queue.id = message.queue_id
-                WHERE message.id = $2
+                WHERE message.queue_id = $1
+                  AND message.id = $2
             ),
             acknowledged AS (
                 DELETE FROM queue_message AS message
-                USING target_queue
-                WHERE message.queue_id = target_queue.id
+                WHERE message.queue_id = $1
                     AND message.id = $2
                     AND message.state = 'IN_FLIGHT'
                     AND message.receipt_handle = $3
@@ -391,7 +389,7 @@ impl MessageRepository for PostgresQueueRepository {
                 ) AS acknowledged
             "#,
         )
-        .bind(queue_name)
+        .bind(queue_id)
         .bind(message_id)
         .bind(receipt_handle)
         .fetch_one(&mut *connection)

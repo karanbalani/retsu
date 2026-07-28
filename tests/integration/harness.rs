@@ -47,6 +47,11 @@ pub struct DequeuedMessage {
 }
 
 #[derive(Deserialize)]
+struct CreateQueueResponse {
+    id: Uuid,
+}
+
+#[derive(Deserialize)]
 struct EnqueueMessageResponse {
     id: Uuid,
 }
@@ -158,7 +163,7 @@ impl IntegrationSystem {
         visibility_timeout_seconds: u32,
         max_delivery_attempts: u16,
         default_message_ttl_seconds: u32,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<Uuid> {
         let response = self
             .client
             .post(format!("{}/v1/queues", self.api_base_url))
@@ -172,12 +177,16 @@ impl IntegrationSystem {
             .await
             .context("queue creation request failed")?;
 
-        expect_status(response, StatusCode::CREATED, "create queue").await
+        let body = expect_body(response, StatusCode::CREATED, "create queue").await?;
+        let response: CreateQueueResponse =
+            serde_json::from_str(&body).context("create queue response was not valid JSON")?;
+
+        Ok(response.id)
     }
 
     pub async fn enqueue_message(
         &self,
-        queue_name: &str,
+        queue_id: Uuid,
         payload: &str,
         priority: &str,
         ttl_seconds: Option<u32>,
@@ -185,7 +194,7 @@ impl IntegrationSystem {
         let response = self
             .client
             .post(format!(
-                "{}/v1/queues/{queue_name}/messages",
+                "{}/v1/queues/{queue_id}/messages",
                 self.api_base_url
             ))
             .json(&json!({
@@ -204,14 +213,11 @@ impl IntegrationSystem {
         Ok(response.id)
     }
 
-    pub async fn dequeue_message(
-        &self,
-        queue_name: &str,
-    ) -> anyhow::Result<Option<DequeuedMessage>> {
+    pub async fn dequeue_message(&self, queue_id: Uuid) -> anyhow::Result<Option<DequeuedMessage>> {
         let response = self
             .client
             .post(format!(
-                "{}/v1/queues/{queue_name}/messages/dequeue",
+                "{}/v1/queues/{queue_id}/messages/dequeue",
                 self.api_base_url
             ))
             .send()
@@ -230,14 +236,14 @@ impl IntegrationSystem {
 
     pub async fn acknowledge_message(
         &self,
-        queue_name: &str,
+        queue_id: Uuid,
         message_id: Uuid,
         receipt_handle: Uuid,
     ) -> anyhow::Result<()> {
         let response = self
             .client
             .post(format!(
-                "{}/v1/queues/{queue_name}/messages/{message_id}/acknowledge",
+                "{}/v1/queues/{queue_id}/messages/{message_id}/acknowledge",
                 self.api_base_url
             ))
             .json(&json!({ "receipt_handle": receipt_handle }))
@@ -250,14 +256,14 @@ impl IntegrationSystem {
 
     pub async fn rejected_acknowledgement_code(
         &self,
-        queue_name: &str,
+        queue_id: Uuid,
         message_id: Uuid,
         receipt_handle: Uuid,
     ) -> anyhow::Result<String> {
         let response = self
             .client
             .post(format!(
-                "{}/v1/queues/{queue_name}/messages/{message_id}/acknowledge",
+                "{}/v1/queues/{queue_id}/messages/{message_id}/acknowledge",
                 self.api_base_url
             ))
             .json(&json!({ "receipt_handle": receipt_handle }))
