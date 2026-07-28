@@ -130,6 +130,30 @@ class BenchmarkSummaryTest(unittest.TestCase):
 
         self.assertIn("🟠 Unstable", summary)
 
+    def test_marks_a_result_unstable_when_control_uncertainty_exceeds_noise(self) -> None:
+        candidate = self.result(
+            name="message_lifecycle/1_kib",
+            change=-0.2,
+            lower_bound=-0.25,
+            upper_bound=-0.15,
+        )
+        control = self.result(
+            name="message_lifecycle/1_kib",
+            change=0.0,
+            lower_bound=-0.02,
+            upper_bound=0.02,
+        )
+
+        summary = render_markdown(
+            [BenchmarkPair("Pair 1", [candidate], [control])],
+            "abc123",
+            "def456",
+            "standard",
+            0.01,
+        )
+
+        self.assertIn("🟠 Unstable", summary)
+
     def test_renders_concurrent_throughput(self) -> None:
         candidate = self.result(
             name="concurrent_lifecycle/4_workers/1_kib",
