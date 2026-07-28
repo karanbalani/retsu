@@ -179,16 +179,6 @@ fn map_acknowledge_message_error(error: AcknowledgeMessageError) -> ApiError {
             ApiError::resource_not_found("queue_not_found", "the requested queue does not exist")
         }
 
-        AcknowledgeMessageError::MessageNotFound => ApiError::resource_not_found(
-            "message_not_found",
-            "the requested message does not exist in this queue",
-        ),
-
-        AcknowledgeMessageError::ReceiptHandleInvalid => ApiError::conflict(
-            "invalid_receipt_handle",
-            "the receipt handle is not valid for the message's current unexpired delivery attempt",
-        ),
-
         AcknowledgeMessageError::Persistence(error) => ApiError::internal(error),
     }
 }

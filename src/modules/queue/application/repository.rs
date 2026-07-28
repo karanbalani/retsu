@@ -28,9 +28,7 @@ pub(in crate::modules::queue) enum DequeueMessageOutcome {
 
 pub(in crate::modules::queue) enum AcknowledgeMessageOutcome {
     Acknowledged,
-    QueueNotFound,
-    MessageNotFound,
-    ReceiptHandleInvalid,
+    Unchanged,
 }
 
 #[derive(Debug)]

@@ -154,11 +154,11 @@ impl QueueModule {
         &self,
         command: AcknowledgeMessageCommand,
     ) -> Result<(), AcknowledgeMessageError> {
-        let message = execute_acknowledge_message(&self.queue_repository, command).await?;
-
-        self.instrumentation
-            .commands()
-            .message_acknowledged(message.queue_name());
+        if let Some(message) = execute_acknowledge_message(&self.queue_repository, command).await? {
+            self.instrumentation
+                .commands()
+                .message_acknowledged(message.queue_name());
+        }
 
         Ok(())
     }

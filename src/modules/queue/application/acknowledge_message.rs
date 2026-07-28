@@ -47,7 +47,7 @@ impl AcknowledgedMessage {
 pub(in crate::modules::queue) async fn execute<R>(
     repository: &R,
     command: AcknowledgeMessageCommand,
-) -> Result<AcknowledgedMessage, AcknowledgeMessageError>
+) -> Result<Option<AcknowledgedMessage>, AcknowledgeMessageError>
 where
     R: QueueRepository,
 {
@@ -70,15 +70,8 @@ where
         .await
         .map_err(AcknowledgeMessageError::Persistence)?
     {
-        AcknowledgeMessageOutcome::Acknowledged => Ok(AcknowledgedMessage { queue_name }),
-
-        AcknowledgeMessageOutcome::QueueNotFound => Err(AcknowledgeMessageError::QueueNotFound),
-
-        AcknowledgeMessageOutcome::MessageNotFound => Err(AcknowledgeMessageError::MessageNotFound),
-
-        AcknowledgeMessageOutcome::ReceiptHandleInvalid => {
-            Err(AcknowledgeMessageError::ReceiptHandleInvalid)
-        }
+        AcknowledgeMessageOutcome::Acknowledged => Ok(Some(AcknowledgedMessage { queue_name })),
+        AcknowledgeMessageOutcome::Unchanged => Ok(None),
     }
 }
 
@@ -86,12 +79,6 @@ where
 pub(in crate::modules::queue) enum AcknowledgeMessageError {
     #[error("the requested queue does not exist")]
     QueueNotFound,
-
-    #[error("the requested message does not exist in this queue")]
-    MessageNotFound,
-
-    #[error("the receipt handle is not valid for the message's current unexpired delivery attempt")]
-    ReceiptHandleInvalid,
 
     #[error("failed to acknowledge the message")]
     Persistence(#[source] anyhow::Error),

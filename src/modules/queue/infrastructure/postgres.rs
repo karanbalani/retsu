@@ -38,13 +38,6 @@ struct DequeueMessageRow {
 }
 
 #[derive(sqlx::FromRow)]
-struct AcknowledgeMessageRow {
-    queue_exists: bool,
-    message_exists: bool,
-    acknowledged: bool,
-}
-
-#[derive(sqlx::FromRow)]
 struct ProcessTimedOutMessagesRow {
     queue_name: String,
     requeued: i64,
@@ -517,47 +510,20 @@ impl QueueRepository for PostgresQueueRepository {
 
         let started = Instant::now();
 
-        let result = sqlx::query_as::<_, AcknowledgeMessageRow>(
+        let result = sqlx::query_scalar::<_, Uuid>(
             r#"
-            WITH target_queue AS MATERIALIZED (
-                SELECT id
-                FROM queue
-                WHERE id = $1
-            ),
-            target_message AS MATERIALIZED (
-                SELECT message.id
-                FROM queue_message AS message
-                WHERE message.queue_id = $1
-                  AND message.id = $2
-            ),
-            acknowledged AS (
-                DELETE FROM queue_message AS message
-                WHERE message.queue_id = $1
-                    AND message.id = $2
-                    AND message.state = 'IN_FLIGHT'
-                    AND message.receipt_handle = $3
-                    AND message.visibility_deadline > CURRENT_TIMESTAMP
-                RETURNING message.id
-            )
-            SELECT
-                EXISTS (
-                    SELECT 1
-                    FROM target_queue
-                ) AS queue_exists,
-                EXISTS (
-                    SELECT 1
-                    FROM target_message
-                ) AS message_exists,
-                EXISTS (
-                    SELECT 1
-                    FROM acknowledged
-                ) AS acknowledged
+            DELETE FROM queue_message
+            WHERE id = $1
+              AND queue_id = $2
+              AND receipt_handle = $3
+              AND visibility_deadline > CURRENT_TIMESTAMP
+            RETURNING id
             "#,
         )
-        .bind(queue_id)
         .bind(message_id)
+        .bind(queue_id)
         .bind(receipt_handle)
-        .fetch_one(&mut *connection)
+        .fetch_optional(&mut *connection)
         .await;
 
         self.metrics
@@ -568,16 +534,9 @@ impl QueueRepository for PostgresQueueRepository {
             Span::current().record("otel.status_code", "ERROR");
         }
 
-        let row = result?;
-
-        match (row.queue_exists, row.message_exists, row.acknowledged) {
-            (_, _, true) => Ok(AcknowledgeMessageOutcome::Acknowledged),
-
-            (false, _, false) => Ok(AcknowledgeMessageOutcome::QueueNotFound),
-
-            (true, false, false) => Ok(AcknowledgeMessageOutcome::MessageNotFound),
-
-            (true, true, false) => Ok(AcknowledgeMessageOutcome::ReceiptHandleInvalid),
+        match result? {
+            Some(_) => Ok(AcknowledgeMessageOutcome::Acknowledged),
+            None => Ok(AcknowledgeMessageOutcome::Unchanged),
         }
     }
 

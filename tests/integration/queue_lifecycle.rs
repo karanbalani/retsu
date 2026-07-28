@@ -30,6 +30,9 @@ async fn queue_lifecycle_crosses_real_process_and_database_boundaries() -> anyho
     system
         .acknowledge_message(queue_id, first_high.id, first_high.receipt_handle)
         .await?;
+    system
+        .acknowledge_message(queue_id, first_high.id, first_high.receipt_handle)
+        .await?;
 
     let second_high = system
         .dequeue_message(queue_id)

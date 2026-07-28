@@ -200,15 +200,18 @@ curl --request POST \
   }'
 ```
 
-A successful request returns status `204` with no response body. The message is
+A successful request returns status `204` with no response body. If the receipt
+handle identifies the message's current unexpired delivery, the message is
 removed and will not be returned again.
+
+Acknowledgement is idempotent. Retsu also returns `204` when the message has
+already been removed, the receipt handle is stale, or its visibility timeout
+has passed. A stale receipt handle never removes a newer delivery of the
+message.
 
 ### Completion errors
 
 - `404` and `queue_not_found`: the queue does not exist.
-- `404` and `message_not_found`: the message does not exist in this queue.
-- `409` and `invalid_receipt_handle`: the receipt handle is not from the
-  message's current delivery, or its visibility timeout has passed.
 
 ## Try a timed-out message again
 
@@ -221,8 +224,8 @@ just worker queue visibility-timeout-processor
 If a returned message is not completed before its visibility timeout, the
 worker makes it available again while its `delivery_attempts` value is below
 the queue's `max_delivery_attempts` setting. A later request can return the
-message with a new `receipt_handle` and a higher `delivery_attempts` value. The
-old receipt handle will no longer work.
+message with a new `receipt_handle` and a higher `delivery_attempts` value.
+Acknowledging with the old receipt handle has no effect.
 
 When a message reaches the delivery attempt limit without being completed,
 Retsu removes it from the active queue and stores it separately. There is no
