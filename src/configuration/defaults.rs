@@ -6,8 +6,9 @@ use std::{
 use super::{
     AppConfiguration,
     schema::{
-        DatabaseConfig, Environment, HttpConfig, LogFormat, LoggingConfig, MetricsConfig,
-        TelemetryConfig, TraceExportConfig, WorkerConfig, WorkerManagementConfig,
+        CacheConfig, CachePolicyConfig, DatabaseConfig, Environment, HttpConfig, LogFormat,
+        LoggingConfig, MetricsConfig, TelemetryConfig, TraceExportConfig, WorkerConfig,
+        WorkerManagementConfig,
     },
 };
 
@@ -61,6 +62,23 @@ impl Default for MetricsConfig {
     fn default() -> Self {
         Self {
             max_queues: metrics_max_queues(),
+        }
+    }
+}
+
+fn cache_max_entries() -> u64 {
+    10_000
+}
+
+fn cache_max_capacity_bytes() -> u64 {
+    8 * 1024 * 1024
+}
+
+impl Default for CachePolicyConfig {
+    fn default() -> Self {
+        Self {
+            max_entries: cache_max_entries(),
+            max_capacity_bytes: cache_max_capacity_bytes(),
         }
     }
 }
@@ -151,6 +169,7 @@ impl Default for AppConfiguration {
             http: HttpConfig::default(),
             logging: LoggingConfig::default(),
             telemetry: TelemetryConfig::default(),
+            cache: CacheConfig::default(),
             database: DatabaseConfig::default(),
             worker: WorkerConfig::default(),
         }

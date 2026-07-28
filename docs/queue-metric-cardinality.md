@@ -67,13 +67,13 @@ Retsu derives a limit from the labels each instrument can produce:
 
 Queue-and-priority instruments:
 
-- `queue.messages.enqueued` (`queue.id`)
+- `queue.messages.enqueued`
 - `queue.messages.ready`
 - `queue.messages.in_flight`
 - `queue.oldest_ready_message.age`
 - `queue.oldest_in_flight_message.age`
 
-The state instruments use `queue.name`.
+These instruments use `queue.name`.
 
 Queue-and-delivery-history instrument:
 
@@ -81,11 +81,11 @@ Queue-and-delivery-history instrument:
 
 Queue-only instruments:
 
-- `queue.messages.acknowledged` (`queue.id`)
+- `queue.messages.acknowledged`
 - `queue.messages.requeued`
 - `queue.messages.dead_lettered`
 
-The retry and dead-letter worker instruments use `queue.name`.
+These instruments use `queue.name`.
 
 For the default of 10,000 queues, each queue-and-priority instrument can retain 30,000 combinations.
 
@@ -102,7 +102,6 @@ Per-instrument multipliers keep the supported queue count consistent without inf
 Good labels have a bounded and understood set of values:
 
 - queue name;
-- queue ID;
 - `HIGH`, `MEDIUM`, or `LOW`;
 - the two expiry delivery-history values;
 - success or error outcomes.

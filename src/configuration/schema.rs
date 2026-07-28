@@ -22,6 +22,9 @@ pub(crate) struct AppConfiguration {
     pub(crate) telemetry: TelemetryConfig,
 
     #[validate(nested)]
+    pub(crate) cache: CacheConfig,
+
+    #[validate(nested)]
     pub(crate) database: DatabaseConfig,
 
     #[validate(nested)]
@@ -98,6 +101,23 @@ pub(crate) struct TelemetryConfig {
 pub(crate) struct MetricsConfig {
     #[validate(range(min = 1, max = 100_000))]
     pub(crate) max_queues: u32,
+}
+
+#[derive(Default, Deserialize, Validate)]
+#[serde(default, deny_unknown_fields)]
+pub(crate) struct CacheConfig {
+    #[validate(nested)]
+    pub(crate) queue_names: CachePolicyConfig,
+}
+
+#[derive(Deserialize, Validate)]
+#[serde(default, deny_unknown_fields)]
+pub(crate) struct CachePolicyConfig {
+    #[validate(range(min = 1, max = 1_000_000))]
+    pub(crate) max_entries: u64,
+
+    #[validate(range(min = 1, max = 4_294_967_295_u64))] // 4GB
+    pub(crate) max_capacity_bytes: u64,
 }
 
 #[derive(Deserialize, Validate)]

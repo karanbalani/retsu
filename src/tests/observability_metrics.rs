@@ -98,6 +98,74 @@ fn request_duration_uses_bounded_semantic_attributes() {
 }
 
 #[test]
+fn cache_metrics_report_named_hits_misses_and_load_outcomes() {
+    let (provider, metrics) = test_metrics();
+    let cache = metrics.cache();
+
+    cache.request("queue_names", "hit");
+    cache.request("queue_names", "miss");
+    cache.load_finished("queue_names", Duration::from_millis(25), "success");
+
+    let output = String::from_utf8(metrics.encode_prometheus().expect("metrics should encode"))
+        .expect("metrics should be UTF-8");
+
+    assert_metric_value(
+        &output,
+        "cache_requests_total",
+        &[("cache_name", "queue_names"), ("outcome", "hit")],
+        "1",
+    );
+    assert_metric_value(
+        &output,
+        "cache_requests_total",
+        &[("cache_name", "queue_names"), ("outcome", "miss")],
+        "1",
+    );
+    assert_metric_value(
+        &output,
+        "cache_load_duration_seconds_count",
+        &[("cache_name", "queue_names"), ("outcome", "success")],
+        "1",
+    );
+
+    provider.shutdown().expect("provider should shut down");
+}
+
+#[test]
+fn queue_command_metrics_use_queue_names() {
+    let (provider, metrics) = test_metrics();
+    let commands = metrics.queue().commands();
+
+    commands.message_enqueued("email-delivery", "HIGH");
+    commands.message_acknowledged("email-delivery");
+
+    let output = String::from_utf8(metrics.encode_prometheus().expect("metrics should encode"))
+        .expect("metrics should be UTF-8");
+
+    assert_metric_value(
+        &output,
+        "queue_messages_enqueued_total",
+        &[
+            ("queue_name", "email-delivery"),
+            ("message_priority", "HIGH"),
+        ],
+        "1",
+    );
+    assert_metric_value(
+        &output,
+        "queue_messages_acknowledged_total",
+        &[("queue_name", "email-delivery")],
+        "1",
+    );
+    assert!(
+        !output.contains("queue_id="),
+        "queue command metrics should not expose queue IDs"
+    );
+
+    provider.shutdown().expect("provider should shut down");
+}
+
+#[test]
 fn queue_state_metrics_replace_stale_series_and_report_collection_health() {
     let (provider, metrics) = test_metrics();
     let state = metrics.queue().state();

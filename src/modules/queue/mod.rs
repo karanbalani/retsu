@@ -8,6 +8,7 @@ use std::time::Instant;
 
 use actix_web::web;
 use sqlx::PgPool;
+use uuid::Uuid;
 
 use super::definition::{ModuleDefinition, WorkerDefinition};
 
@@ -21,11 +22,27 @@ use application::{
     execute_process_timed_out_messages,
 };
 
-use crate::observability::{DatabaseMetrics, QueueInstrumentation, QueuePriorityStateMetric};
+use crate::{
+    cache::{MemoryCache, MemoryCachePolicy},
+    configuration::CachePolicyConfig,
+    observability::{
+        CacheMetrics, DatabaseMetrics, QueueInstrumentation, QueuePriorityStateMetric,
+    },
+};
 
-use infrastructure::PostgresQueueRepository;
+use infrastructure::{PostgresQueueRepository, QueueNameCachingRepository};
 
 type QueueStateCollectorLease = <PostgresQueueRepository as QueueStateRepository>::CollectorLease;
+type QueueNameMemoryCache = MemoryCache<Uuid, String>;
+type QueueNameRepository =
+    QueueNameCachingRepository<PostgresQueueRepository, QueueNameMemoryCache>;
+
+fn queue_name_weight(queue_id: &Uuid, queue_name: &String) -> u32 {
+    u32::try_from(
+        std::mem::size_of_val(queue_id) + std::mem::size_of::<String>() + queue_name.capacity(),
+    )
+    .unwrap_or(u32::MAX)
+}
 
 const WORKERS: &[WorkerDefinition] = &[
     WorkerDefinition::new(
@@ -48,7 +65,8 @@ pub(super) const DEFINITION: ModuleDefinition = ModuleDefinition::new("queue")
 
 #[derive(Clone)]
 pub(crate) struct QueueModule {
-    repository: PostgresQueueRepository,
+    postgres_repository: PostgresQueueRepository,
+    queue_name_repository: QueueNameRepository,
     instrumentation: QueueInstrumentation,
 }
 
@@ -57,9 +75,26 @@ impl QueueModule {
         database_pool: PgPool,
         instrumentation: QueueInstrumentation,
         database_metrics: DatabaseMetrics,
+        cache_configuration: &CachePolicyConfig,
+        cache_metrics: CacheMetrics,
     ) -> Self {
+        let postgres_repository = PostgresQueueRepository::new(database_pool, database_metrics);
+        let cache_policy = MemoryCachePolicy::new(
+            cache_configuration.max_entries,
+            cache_configuration.max_capacity_bytes,
+        );
+        let queue_name_cache = MemoryCache::new(
+            "queue_names",
+            cache_policy,
+            queue_name_weight,
+            cache_metrics,
+        );
+        let queue_name_repository =
+            QueueNameCachingRepository::new(postgres_repository.clone(), queue_name_cache);
+
         Self {
-            repository: PostgresQueueRepository::new(database_pool, database_metrics),
+            postgres_repository,
+            queue_name_repository,
             instrumentation,
         }
     }
@@ -68,18 +103,35 @@ impl QueueModule {
         &self,
         command: CreateQueueCommand,
     ) -> Result<CreatedQueue, CreateQueueError> {
-        execute_create_queue(&self.repository, command).await
+        execute_create_queue(&self.queue_name_repository, command).await
     }
 
     async fn enqueue_message(
         &self,
         command: EnqueueMessageCommand,
     ) -> Result<EnqueuedMessage, EnqueueMessageError> {
-        let message = execute_enqueue_message(&self.repository, command).await?;
+        let queue_id = command.queue_id();
+        let message = match execute_enqueue_message(
+            &self.queue_name_repository,
+            &self.postgres_repository,
+            command,
+        )
+        .await
+        {
+            Ok(message) => message,
+            Err(error @ EnqueueMessageError::QueueNotFound) => {
+                self.queue_name_repository
+                    .invalidate_queue_name(queue_id)
+                    .await;
+
+                return Err(error);
+            }
+            Err(error) => return Err(error),
+        };
 
         self.instrumentation
             .commands()
-            .message_enqueued(message.queue_id(), message.priority());
+            .message_enqueued(message.queue_name(), message.priority());
 
         Ok(message)
     }
@@ -88,7 +140,7 @@ impl QueueModule {
         &self,
         command: DequeueMessageCommand,
     ) -> Result<Option<DequeuedMessage>, DequeueMessageError> {
-        execute_dequeue_message(&self.repository, command).await
+        execute_dequeue_message(&self.postgres_repository, command).await
     }
 
     async fn acknowledge_message(
@@ -96,12 +148,27 @@ impl QueueModule {
         command: AcknowledgeMessageCommand,
     ) -> Result<(), AcknowledgeMessageError> {
         let queue_id = command.queue_id();
+        let message = match execute_acknowledge_message(
+            &self.queue_name_repository,
+            &self.postgres_repository,
+            command,
+        )
+        .await
+        {
+            Ok(message) => message,
+            Err(error @ AcknowledgeMessageError::QueueNotFound) => {
+                self.queue_name_repository
+                    .invalidate_queue_name(queue_id)
+                    .await;
 
-        execute_acknowledge_message(&self.repository, command).await?;
+                return Err(error);
+            }
+            Err(error) => return Err(error),
+        };
 
         self.instrumentation
             .commands()
-            .message_acknowledged(queue_id);
+            .message_acknowledged(message.queue_name());
 
         Ok(())
     }
@@ -110,7 +177,8 @@ impl QueueModule {
         &self,
         batch_size: u32,
     ) -> Result<TimeoutProcessingSummary, ProcessTimedOutMessagesError> {
-        let summary = execute_process_timed_out_messages(&self.repository, batch_size).await?;
+        let summary =
+            execute_process_timed_out_messages(&self.postgres_repository, batch_size).await?;
         let metrics = self.instrumentation.visibility_timeout();
 
         for queue in summary.per_queue() {
@@ -125,7 +193,8 @@ impl QueueModule {
         &self,
         batch_size: u32,
     ) -> Result<ExpiredMessagesCleanupSummary, ProcessExpiredMessagesError> {
-        let summary = execute_process_expired_messages(&self.repository, batch_size).await?;
+        let summary =
+            execute_process_expired_messages(&self.postgres_repository, batch_size).await?;
         let metrics = self.instrumentation.expired_message_cleaner();
 
         for queue in summary.per_queue() {
@@ -148,7 +217,7 @@ impl QueueModule {
     async fn try_acquire_state_collector_lease(
         &self,
     ) -> Result<Option<QueueStateCollectorLease>, anyhow::Error> {
-        self.repository.try_acquire_collector_lease().await
+        self.postgres_repository.try_acquire_collector_lease().await
     }
 
     async fn refresh_state_metrics(
@@ -157,7 +226,7 @@ impl QueueModule {
     ) -> Result<(), anyhow::Error> {
         let metrics = self.instrumentation.state();
         let started = Instant::now();
-        let result = self.repository.queue_state(lease).await;
+        let result = self.postgres_repository.queue_state(lease).await;
 
         match result {
             Ok(snapshot) => {

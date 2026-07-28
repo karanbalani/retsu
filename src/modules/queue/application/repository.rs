@@ -240,6 +240,8 @@ pub(in crate::modules::queue) trait QueueStateRepository {
 
 pub(in crate::modules::queue) trait QueueRepository {
     async fn create_queue(&self, queue: &Queue) -> Result<CreateQueueOutcome, anyhow::Error>;
+
+    async fn queue_name(&self, queue_id: Uuid) -> Result<Option<String>, anyhow::Error>;
 }
 
 pub(in crate::modules::queue) trait MessageRepository {

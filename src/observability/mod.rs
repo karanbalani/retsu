@@ -20,7 +20,7 @@ pub(crate) use error::ObservabilityError;
 #[cfg(test)]
 pub(crate) use metrics::test_metrics;
 pub(crate) use metrics::{
-    DatabaseMetrics, Metrics, QueueInstrumentation, QueuePriorityStateMetric,
+    CacheMetrics, DatabaseMetrics, Metrics, QueueInstrumentation, QueuePriorityStateMetric,
 };
 
 pub(crate) struct Observability {

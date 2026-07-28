@@ -9,6 +9,7 @@ Retsu is one program that can run as an API, one named worker, or a database mig
 ```mermaid
 flowchart LR
     Client["Application using Retsu"] --> API["API process<br/>HTTP routes + queue module"]
+    API --> Cache["Process-local<br/>queue-name cache"]
     Timeout["Worker process<br/>visibility-timeout-processor<br/>+ queue module"] --> Database[("PostgreSQL")]
     Cleaner["Worker process<br/>expired-message-cleaner<br/>+ queue module"] --> Database
     State["Worker process<br/>state-metrics-collector<br/>+ queue module"] --> Database
@@ -23,7 +24,11 @@ flowchart LR
     State -. "sends traces when enabled" .-> Collector
 ```
 
-The queue module is part of each process, not a separate service. It holds the queue rules and the PostgreSQL operations used by the API and workers.
+The queue module is part of each process, not a separate service. It holds the
+queue rules, a process-local queue-name cache, and the PostgreSQL operations
+used by the API and workers. PostgreSQL remains authoritative. Cached queue
+names are immutable and capacity-bounded, so they do not use time-based
+expiration.
 
 The API receives health and queue requests. A worker process runs one selected background job. The visibility timeout worker handles returned messages whose timeout has ended. The expired message cleaner removes messages whose lifetime has ended. State metrics collector replicas compete for a PostgreSQL leadership lock. One active collector refreshes queue counts and message ages every 15 seconds while the others wait to take over. Each worker process also serves its own health and metrics endpoints.
 
@@ -66,13 +71,22 @@ Returning a message creates a receipt handle and increases its delivery attempt 
 
 The expired message cleaner removes an expired waiting message. If a returned message expires, the cleaner waits for its visibility timeout to end before removing it.
 
-See [Queues and messages](queues.md) for the requests, responses, and settings used in this flow. See the [Codebase guide](codebase-guide.md) to understand the dependency setup and module boundaries. See [Local services](../infra/local/README.md) for the database and monitoring tools. The queue metrics guides explain [state rollups](queue-state-rollups.md), [metric cardinality](queue-metric-cardinality.md), and [collector leadership](queue-state-collector-leadership.md).
+See [Queues and messages](queues.md) for the requests, responses, and settings
+used in this flow. See [Caching](caching.md) for queue-name caching and the
+future shared-cache boundary. See the [Codebase guide](codebase-guide.md) to
+understand the dependency setup and module boundaries. See
+[Local services](../infra/local/README.md) for the database and monitoring
+tools. The queue metrics guides explain
+[state rollups](queue-state-rollups.md),
+[metric cardinality](queue-metric-cardinality.md), and
+[collector leadership](queue-state-collector-leadership.md).
 
 ## Where the code lives
 
 | Path | What it contains |
 | --- | --- |
 | `src/entrypoints/` | Starts the API, a selected worker, or migrations |
+| `src/cache/` | Generic cache contract and in-memory implementation |
 | `src/modules/` | Registers each application module's routes and workers |
 | `src/modules/queue/` | Queue rules, API handlers, PostgreSQL access, and queue workers |
 | `src/worker/` | Runs the selected worker and its health and metrics server |

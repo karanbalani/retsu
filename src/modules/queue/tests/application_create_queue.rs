@@ -40,6 +40,10 @@ impl QueueRepository for FakeQueueRepository {
             CreateQueueOutcome::AlreadyExists => CreateQueueOutcome::AlreadyExists,
         })
     }
+
+    async fn queue_name(&self, _queue_id: uuid::Uuid) -> Result<Option<String>, anyhow::Error> {
+        unreachable!("create queue tests should not read queue names")
+    }
 }
 
 #[tokio::test]

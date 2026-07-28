@@ -136,6 +136,44 @@ impl QueueRepository for PostgresQueueRepository {
             None => Ok(CreateQueueOutcome::AlreadyExists),
         }
     }
+
+    #[tracing::instrument(
+        name = "db.operation",
+        skip_all,
+        fields(
+            db.system.name = "postgresql",
+            db.operation.name = "queue.read_name",
+            db.pool.acquire.duration = field::Empty,
+            error.type = field::Empty,
+            otel.status_code = field::Empty,
+        ),
+        err
+    )]
+    async fn queue_name(&self, queue_id: Uuid) -> Result<Option<String>, anyhow::Error> {
+        let mut connection = database::acquire(&self.pool, &self.metrics).await?;
+        let started = Instant::now();
+
+        let result = sqlx::query_scalar::<_, String>(
+            r#"
+            SELECT name
+            FROM queue
+            WHERE id = $1
+            "#,
+        )
+        .bind(queue_id)
+        .fetch_optional(&mut *connection)
+        .await;
+
+        self.metrics
+            .operation_finished("queue.read_name", started.elapsed(), result.is_ok());
+
+        if let Err(error) = &result {
+            Span::current().record("error.type", database::error_type(error));
+            Span::current().record("otel.status_code", "ERROR");
+        }
+
+        Ok(result?)
+    }
 }
 
 impl MessageRepository for PostgresQueueRepository {

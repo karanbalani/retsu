@@ -7,16 +7,52 @@ use uuid::Uuid;
 
 use super::{
     EnqueueMessageCommand, EnqueueMessageError, EnqueueMessageOutcome, Message, MessageRepository,
-    MessageValidationError, execute,
+    MessageValidationError, QueueRepository, execute,
 };
-use crate::modules::queue::application::repository::{
-    AcknowledgeMessageOutcome, DequeueMessageOutcome, TimeoutProcessingSummary,
+use crate::modules::queue::{
+    application::repository::{
+        AcknowledgeMessageOutcome, CreateQueueOutcome, DequeueMessageOutcome,
+        TimeoutProcessingSummary,
+    },
+    domain::Queue,
 };
 
 struct FakeMessageRepository {
     enqueue_outcome: EnqueueMessageOutcome,
     enqueue_calls: AtomicUsize,
     enqueued_message: Mutex<Option<(Uuid, Message)>>,
+}
+
+struct FakeQueueRepository {
+    name: Option<String>,
+    name_calls: AtomicUsize,
+}
+
+impl FakeQueueRepository {
+    fn existing(_queue_id: Uuid) -> Self {
+        Self {
+            name: Some("email-delivery".to_owned()),
+            name_calls: AtomicUsize::new(0),
+        }
+    }
+
+    fn missing() -> Self {
+        Self {
+            name: None,
+            name_calls: AtomicUsize::new(0),
+        }
+    }
+}
+
+impl QueueRepository for FakeQueueRepository {
+    async fn create_queue(&self, _queue: &Queue) -> Result<CreateQueueOutcome, anyhow::Error> {
+        unreachable!("enqueue tests should not create queues")
+    }
+
+    async fn queue_name(&self, _queue_id: Uuid) -> Result<Option<String>, anyhow::Error> {
+        self.name_calls.fetch_add(1, Ordering::Relaxed);
+        Ok(self.name.clone())
+    }
 }
 
 impl FakeMessageRepository {
@@ -86,6 +122,7 @@ impl MessageRepository for FakeMessageRepository {
 #[tokio::test]
 async fn persists_and_returns_the_effective_message() {
     let queue_id = Uuid::now_v7();
+    let queues = FakeQueueRepository::existing(queue_id);
     let repository = FakeMessageRepository::new(EnqueueMessageOutcome::Enqueued);
     let command = EnqueueMessageCommand::new(
         queue_id,
@@ -94,12 +131,12 @@ async fn persists_and_returns_the_effective_message() {
         Some(60),
     );
 
-    let enqueued = execute(&repository, command)
+    let enqueued = execute(&queues, &repository, command)
         .await
         .expect("valid message should be enqueued");
 
     assert_eq!(repository.enqueue_calls(), 1);
-    assert_eq!(enqueued.queue_id(), queue_id);
+    assert_eq!(enqueued.queue_name(), "email-delivery");
     assert_eq!(enqueued.priority(), "HIGH");
 
     let persisted = repository
@@ -120,9 +157,11 @@ async fn persists_and_returns_the_effective_message() {
 #[tokio::test]
 async fn rejects_invalid_messages_without_calling_the_repository() {
     let repository = FakeMessageRepository::new(EnqueueMessageOutcome::Enqueued);
+    let queues = FakeQueueRepository::existing(Uuid::now_v7());
     let queue_id = Uuid::now_v7();
 
     let invalid_priority = execute(
+        &queues,
         &repository,
         EnqueueMessageCommand::new(queue_id, "payload".to_owned(), "URGENT".to_owned(), None),
     )
@@ -135,6 +174,7 @@ async fn rejects_invalid_messages_without_calling_the_repository() {
     ));
 
     let invalid_ttl = execute(
+        &queues,
         &repository,
         EnqueueMessageCommand::new(queue_id, "payload".to_owned(), "HIGH".to_owned(), Some(0)),
     )
@@ -147,11 +187,13 @@ async fn rejects_invalid_messages_without_calling_the_repository() {
     ));
 
     assert_eq!(repository.enqueue_calls(), 0);
+    assert_eq!(queues.name_calls.load(Ordering::Relaxed), 0);
 }
 
 #[tokio::test]
 async fn reports_when_the_target_queue_does_not_exist() {
-    let repository = FakeMessageRepository::new(EnqueueMessageOutcome::QueueNotFound);
+    let queues = FakeQueueRepository::missing();
+    let repository = FakeMessageRepository::new(EnqueueMessageOutcome::Enqueued);
     let command = EnqueueMessageCommand::new(
         Uuid::now_v7(),
         "payload".to_owned(),
@@ -159,7 +201,22 @@ async fn reports_when_the_target_queue_does_not_exist() {
         None,
     );
 
-    let result = execute(&repository, command).await;
+    let result = execute(&queues, &repository, command).await;
+
+    assert!(matches!(result, Err(EnqueueMessageError::QueueNotFound)));
+    assert_eq!(repository.enqueue_calls(), 0);
+    assert_eq!(queues.name_calls.load(Ordering::Relaxed), 1);
+}
+
+#[tokio::test]
+async fn preserves_a_queue_not_found_outcome_from_the_message_write() {
+    let queue_id = Uuid::now_v7();
+    let queues = FakeQueueRepository::existing(queue_id);
+    let repository = FakeMessageRepository::new(EnqueueMessageOutcome::QueueNotFound);
+    let command =
+        EnqueueMessageCommand::new(queue_id, "payload".to_owned(), "MEDIUM".to_owned(), None);
+
+    let result = execute(&queues, &repository, command).await;
 
     assert!(matches!(result, Err(EnqueueMessageError::QueueNotFound)));
     assert_eq!(repository.enqueue_calls(), 1);

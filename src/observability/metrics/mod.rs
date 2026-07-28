@@ -1,3 +1,4 @@
+mod cache;
 mod database;
 mod expired_message_cleaner;
 mod http;
@@ -14,6 +15,7 @@ use opentelemetry_sdk::{
 };
 use prometheus::{Encoder, Registry, TextEncoder};
 
+pub(crate) use cache::CacheMetrics;
 pub(crate) use database::DatabaseMetrics;
 pub(crate) use expired_message_cleaner::ExpiredMessageCleanerMetrics;
 pub(crate) use http::HttpMetrics;
@@ -27,6 +29,7 @@ pub(crate) struct Metrics {
     registry: Registry,
 
     http: HttpMetrics,
+    cache: CacheMetrics,
     database: DatabaseMetrics,
     queue: QueueInstrumentation,
 }
@@ -38,6 +41,10 @@ impl Metrics {
 
     pub(crate) fn database(&self) -> &DatabaseMetrics {
         &self.database
+    }
+
+    pub(crate) fn cache(&self) -> &CacheMetrics {
+        &self.cache
     }
 
     pub(crate) fn queue(&self) -> &QueueInstrumentation {
@@ -105,6 +112,7 @@ pub(super) fn initialize(
         registry,
 
         http: HttpMetrics::new(&meter),
+        cache: CacheMetrics::new(&meter),
         database: DatabaseMetrics::new(&meter),
         queue: QueueInstrumentation::new(&meter),
     };

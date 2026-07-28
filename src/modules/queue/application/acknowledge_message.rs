@@ -1,7 +1,9 @@
 use thiserror::Error;
 use uuid::Uuid;
 
-use super::super::application::{MessageRepository, repository::AcknowledgeMessageOutcome};
+use super::super::application::{
+    MessageRepository, QueueRepository, repository::AcknowledgeMessageOutcome,
+};
 
 #[derive(Debug)]
 pub(in crate::modules::queue) struct AcknowledgeMessageCommand {
@@ -28,6 +30,16 @@ impl AcknowledgeMessageCommand {
     }
 }
 
+pub(in crate::modules::queue) struct AcknowledgedMessage {
+    queue_name: String,
+}
+
+impl AcknowledgedMessage {
+    pub(in crate::modules::queue) fn queue_name(&self) -> &str {
+        &self.queue_name
+    }
+}
+
 #[tracing::instrument(
     name = "queue.acknowledge",
     skip_all,
@@ -38,12 +50,14 @@ impl AcknowledgeMessageCommand {
     ),
     err
 )]
-pub(in crate::modules::queue) async fn execute<R>(
-    repository: &R,
+pub(in crate::modules::queue) async fn execute<Q, M>(
+    queue_repository: &Q,
+    message_repository: &M,
     command: AcknowledgeMessageCommand,
-) -> Result<(), AcknowledgeMessageError>
+) -> Result<AcknowledgedMessage, AcknowledgeMessageError>
 where
-    R: MessageRepository,
+    Q: QueueRepository,
+    M: MessageRepository,
 {
     let AcknowledgeMessageCommand {
         queue_id,
@@ -51,12 +65,20 @@ where
         receipt_handle,
     } = command;
 
-    match repository
+    let queue_name = queue_repository
+        .queue_name(queue_id)
+        .await
+        .map_err(AcknowledgeMessageError::Persistence)?
+        .ok_or(AcknowledgeMessageError::QueueNotFound)?;
+
+    tracing::Span::current().record("queue.name", &queue_name);
+
+    match message_repository
         .acknowledge_message(queue_id, message_id, receipt_handle)
         .await
         .map_err(AcknowledgeMessageError::Persistence)?
     {
-        AcknowledgeMessageOutcome::Acknowledged => Ok(()),
+        AcknowledgeMessageOutcome::Acknowledged => Ok(AcknowledgedMessage { queue_name }),
 
         AcknowledgeMessageOutcome::QueueNotFound => Err(AcknowledgeMessageError::QueueNotFound),
 

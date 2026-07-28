@@ -28,6 +28,8 @@ impl ApplicationContext {
             database_pool.clone(),
             metrics.queue().clone(),
             metrics.database().clone(),
+            &configuration.cache.queue_names,
+            metrics.cache().clone(),
         );
 
         tracing::info!("application dependencies initialized");
