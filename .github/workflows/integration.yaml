@@ -18,13 +18,13 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: "0"
-  TEST_IMAGE: retsu-pr-integration:${{ github.sha }}
+  TEST_IMAGE: retsu-integration:${{ github.sha }}
 
 jobs:
-  container-image-integration:
-    name: Container image integration
+  integration:
+    name: Integration tests
     if: >-
-      github.event_name == 'pull_request' &&
+      github.event_name == 'push' ||
       github.event.label.name == 'run-integration-tests'
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -32,6 +32,22 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+
+      - name: Activate pinned Rust toolchain
+        run: |
+          rustc --version
+          cargo --version
+
+      - name: Restore Rust dependency and build cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: rust-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml') }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            rust-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml') }}-
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -57,34 +73,3 @@ jobs:
       - name: Remove local test image
         if: always()
         run: docker image rm --force "${TEST_IMAGE}" || true
-
-  integration:
-    name: Integration tests
-    if: github.event_name == 'push'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v6
-
-      - name: Activate pinned Rust toolchain
-        run: |
-          rustc --version
-          cargo --version
-
-      - name: Restore Rust dependency and build cache
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: rust-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml') }}-${{ hashFiles('Cargo.lock') }}
-          restore-keys: |
-            rust-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml') }}-
-
-      - name: Run integration tests
-        run: >-
-          cargo test --locked --test integration --all-features
-          -- --test-threads=1
