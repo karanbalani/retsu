@@ -7,7 +7,8 @@ hardware score.
 
 ## Comparison contract
 
-- Run the base and candidate measurements in the same GitHub Actions job.
+- Run the base, candidate, and same-code control measurements in the same
+  GitHub Actions job.
 - Pin the runner image, Rust toolchain, dependency lockfile, and PostgreSQL
   image.
 - Exclude compilation, migrations, fixture creation, and warm-up from measured
@@ -41,5 +42,8 @@ The first version is informational: a reported regression does not fail the
 workflow.
 
 GitHub-hosted virtual machines introduce measurement noise. Base and candidate
-results therefore remain paired in one job, and the report should be rerun when
-an expected improvement is close to the noise threshold.
+results therefore remain paired in one job. After the candidate, the workflow
+measures the base commit again. A material difference between the two base
+measurements marks the comparison as unstable runner drift instead of
+attributing that difference to the candidate. The report should still be rerun
+when an expected improvement is close to the noise threshold.
