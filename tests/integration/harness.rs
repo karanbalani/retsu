@@ -302,6 +302,80 @@ impl IntegrationSystem {
             .context("failed to inspect active message persistence")
     }
 
+    #[allow(dead_code)]
+    pub async fn delete_message_directly(&self, message_id: Uuid) -> anyhow::Result<()> {
+        let result = sqlx::query("DELETE FROM queue_message WHERE id = $1")
+            .bind(message_id)
+            .execute(&self.database_pool)
+            .await
+            .context("failed to delete benchmark message")?;
+
+        ensure!(
+            result.rows_affected() == 1,
+            "expected to delete one benchmark message, deleted {}",
+            result.rows_affected()
+        );
+
+        Ok(())
+    }
+
+    #[allow(dead_code)]
+    pub async fn restore_message_directly(&self, message_id: Uuid) -> anyhow::Result<()> {
+        let result = sqlx::query(
+            r#"
+            UPDATE queue_message
+            SET
+                state = 'READY',
+                delivery_attempts = 0,
+                receipt_handle = NULL,
+                visibility_deadline = NULL,
+                last_delivered_at = NULL
+            WHERE id = $1
+            "#,
+        )
+        .bind(message_id)
+        .execute(&self.database_pool)
+        .await
+        .context("failed to restore benchmark message")?;
+
+        ensure!(
+            result.rows_affected() == 1,
+            "expected to restore one benchmark message, restored {}",
+            result.rows_affected()
+        );
+
+        Ok(())
+    }
+
+    #[allow(dead_code)]
+    pub async fn seed_ready_messages_directly(
+        &self,
+        queue_id: Uuid,
+        message_count: u32,
+        payload_size_bytes: u32,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            r#"
+            INSERT INTO queue_message (id, queue_id, payload, priority, expires_at)
+            SELECT
+                gen_random_uuid(),
+                $1,
+                repeat('x', $2)::BYTEA,
+                2,
+                CURRENT_TIMESTAMP + INTERVAL '1 day'
+            FROM generate_series(1, $3)
+            "#,
+        )
+        .bind(queue_id)
+        .bind(i32::try_from(payload_size_bytes).context("payload size exceeded i32")?)
+        .bind(i32::try_from(message_count).context("message count exceeded i32")?)
+        .execute(&self.database_pool)
+        .await
+        .context("failed to seed benchmark messages")?;
+
+        Ok(())
+    }
+
     pub async fn dead_letter_reason(&self, message_id: Uuid) -> anyhow::Result<Option<String>> {
         sqlx::query_scalar("SELECT reason FROM queue_dead_letter_message WHERE id = $1")
             .bind(message_id)
