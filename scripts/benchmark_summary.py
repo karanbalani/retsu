@@ -18,6 +18,13 @@ class BenchmarkResult:
     change_upper_bound: float
 
 
+@dataclass(frozen=True)
+class BenchmarkPair:
+    name: str
+    results: list[BenchmarkResult]
+    controls: list[BenchmarkResult]
+
+
 def read_json(path: Path) -> dict:
     with path.open(encoding="utf-8") as source:
         return json.load(source)
@@ -101,32 +108,100 @@ def control_is_stable(control: BenchmarkResult, noise_threshold: float) -> bool:
     )
 
 
+def pair_verdict(
+    result: BenchmarkResult,
+    control: BenchmarkResult,
+    noise_threshold: float,
+) -> str:
+    if not control_is_stable(control, noise_threshold):
+        return "🟠 Unstable"
+
+    return verdict(result, noise_threshold)
+
+
+def combined_verdict(pair_verdicts: list[str]) -> str:
+    if any(pair_result == "🟠 Unstable" for pair_result in pair_verdicts):
+        return "🟠 Unstable"
+    if all(pair_result == "🟢 Improved" for pair_result in pair_verdicts):
+        return "🟢 Improved"
+    if all(pair_result == "🔴 Regressed" for pair_result in pair_verdicts):
+        return "🔴 Regressed"
+    return "⚪ Inconclusive"
+
+
+def format_change(result: BenchmarkResult) -> str:
+    return (
+        f"{format_percentage(result.change)} "
+        f"({format_percentage(result.change_lower_bound)} to "
+        f"{format_percentage(result.change_upper_bound)})"
+    )
+
+
+def format_pair_cell(
+    result: BenchmarkResult,
+    control: BenchmarkResult,
+    result_verdict: str,
+) -> str:
+    base = format_measurement(result.base_nanoseconds, result.throughput_elements)
+    candidate = format_measurement(
+        result.candidate_nanoseconds,
+        result.throughput_elements,
+    )
+
+    return (
+        f"{base} → {candidate}<br>"
+        f"{format_change(result)}<br>"
+        f"control {format_change(control)}<br>"
+        f"{result_verdict}"
+    )
+
+
 def render_markdown(
-    results: list[BenchmarkResult],
-    controls: list[BenchmarkResult],
+    pairs: list[BenchmarkPair],
     base: str,
     candidate: str,
     mode: str,
     noise_threshold: float,
 ) -> str:
-    controls_by_name = {control.name: control for control in controls}
-    rendered_results = []
+    if not pairs:
+        raise ValueError("at least one benchmark pair is required")
 
-    for result in results:
-        control = controls_by_name.get(result.name)
-        if control is None:
-            raise ValueError(f"no same-code control found for {result.name}")
+    benchmark_names = [result.name for result in pairs[0].results]
+    expected_names = set(benchmark_names)
+    pair_results = []
 
-        result_verdict = (
-            verdict(result, noise_threshold)
-            if control_is_stable(control, noise_threshold)
-            else "🟠 Unstable"
+    for pair in pairs:
+        results_by_name = {result.name: result for result in pair.results}
+        controls_by_name = {control.name: control for control in pair.controls}
+
+        if set(results_by_name) != expected_names:
+            raise ValueError(f"{pair.name} has a different benchmark result set")
+        if set(controls_by_name) != expected_names:
+            raise ValueError(f"{pair.name} has a different same-code control set")
+
+        pair_results.append((pair.name, results_by_name, controls_by_name))
+
+    rendered_rows = []
+
+    for benchmark_name in benchmark_names:
+        cells = []
+        result_verdicts = []
+
+        for _, results_by_name, controls_by_name in pair_results:
+            result = results_by_name[benchmark_name]
+            control = controls_by_name[benchmark_name]
+            result_verdict = pair_verdict(result, control, noise_threshold)
+            result_verdicts.append(result_verdict)
+            cells.append(format_pair_cell(result, control, result_verdict))
+
+        rendered_rows.append(
+            (benchmark_name, cells, combined_verdict(result_verdicts))
         )
-        rendered_results.append((result, control, result_verdict))
 
+    outcomes = ("🟢 Improved", "🔴 Regressed", "⚪ Inconclusive", "🟠 Unstable")
     outcome_counts = {
-        outcome: sum(result_verdict == outcome for _, _, result_verdict in rendered_results)
-        for outcome in ("🟢 Improved", "🔴 Regressed", "⚪ Inconclusive", "🟠 Unstable")
+        outcome: sum(result_verdict == outcome for _, _, result_verdict in rendered_rows)
+        for outcome in outcomes
     }
 
     lines = [
@@ -136,6 +211,7 @@ def render_markdown(
         f"- Candidate: `{candidate}`",
         f"- Mode: `{mode}`",
         f"- Practical noise threshold: `{noise_threshold:.0%}`",
+        f"- Comparison pairs: `{len(pairs)}`",
         (
             f"- Outcomes: {outcome_counts['🟢 Improved']} improved · "
             f"{outcome_counts['🔴 Regressed']} regressed · "
@@ -143,35 +219,29 @@ def render_markdown(
             f"{outcome_counts['🟠 Unstable']} unstable"
         ),
         "",
-        "| Benchmark | Base mean | Candidate mean | Candidate change (95% CI) | Same-code control | Verdict |",
-        "| --- | ---: | ---: | ---: | ---: | --- |",
     ]
 
-    for result, control, result_verdict in rendered_results:
-        change = (
-            f"{format_percentage(result.change)} "
-            f"({format_percentage(result.change_lower_bound)} to "
-            f"{format_percentage(result.change_upper_bound)})"
-        )
-        control_change = (
-            f"{format_percentage(control.change)} "
-            f"({format_percentage(control.change_lower_bound)} to "
-            f"{format_percentage(control.change_upper_bound)})"
-        )
-        name = result.name.replace("|", "\\|")
+    pair_headers = [
+        pair_name.replace("|", "\\|") + " (base → candidate)"
+        for pair_name, _, _ in pair_results
+    ]
+    lines.append("| Benchmark | " + " | ".join(pair_headers) + " | Verdict |")
+    lines.append("| --- | " + " | ".join("---:" for _ in pairs) + " | --- |")
+
+    for benchmark_name, cells, result_verdict in rendered_rows:
+        name = benchmark_name.replace("|", "\\|")
         lines.append(
-            f"| `{name}` "
-            f"| {format_measurement(result.base_nanoseconds, result.throughput_elements)} "
-            f"| {format_measurement(result.candidate_nanoseconds, result.throughput_elements)} "
-            f"| {change} "
-            f"| {control_change} | {result_verdict} |"
+            f"| `{name}` | " + " | ".join(cells) + f" | {result_verdict} |"
         )
 
     lines.extend(
         [
             "",
-            "> The same-code control repeats the base measurement after the candidate. "
-            "A material control change marks the result as unstable runner drift.",
+            "> Each pair repeats the base after the candidate as a same-code control. "
+            "Any material control drift marks the combined result as unstable.",
+            "",
+            "> Improvement or regression requires every stable pair to agree. "
+            "All other stable combinations are inconclusive.",
             "",
             "> Informational only. Rerun small or inconclusive changes before drawing a conclusion.",
         ]
@@ -183,20 +253,50 @@ def render_markdown(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Render Criterion comparisons as Markdown")
     parser.add_argument("--criterion-directory", type=Path, default=Path("target/criterion"))
-    parser.add_argument("--control-directory", type=Path, required=True)
+    parser.add_argument("--control-directory", type=Path)
     parser.add_argument("--baseline", default="base")
+    parser.add_argument(
+        "--pair",
+        action="append",
+        nargs=4,
+        metavar=("NAME", "CANDIDATE_DIRECTORY", "CONTROL_DIRECTORY", "BASELINE"),
+    )
     parser.add_argument("--base", required=True)
     parser.add_argument("--candidate", required=True)
     parser.add_argument("--mode", required=True)
     parser.add_argument("--noise-threshold", type=float, default=0.01)
     arguments = parser.parse_args()
 
-    results = load_results(arguments.criterion_directory, arguments.baseline)
-    controls = load_results(arguments.control_directory, arguments.baseline)
+    if arguments.pair:
+        pairs = [
+            BenchmarkPair(
+                name=name,
+                results=load_results(Path(candidate_directory), baseline),
+                controls=load_results(Path(control_directory), baseline),
+            )
+            for name, candidate_directory, control_directory, baseline in arguments.pair
+        ]
+    else:
+        if arguments.control_directory is None:
+            parser.error("--control-directory is required when --pair is not provided")
+
+        pairs = [
+            BenchmarkPair(
+                name="Pair 1",
+                results=load_results(
+                    arguments.criterion_directory,
+                    arguments.baseline,
+                ),
+                controls=load_results(
+                    arguments.control_directory,
+                    arguments.baseline,
+                ),
+            )
+        ]
+
     print(
         render_markdown(
-            results,
-            controls,
+            pairs,
             arguments.base,
             arguments.candidate,
             arguments.mode,
