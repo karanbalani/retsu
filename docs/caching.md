@@ -61,7 +61,7 @@ cache:
   queue_details:
     max_entries: 10000
     max_capacity_bytes: 8388608
-    ttl_seconds: 60
+    ttl_seconds: 300
 ```
 
 The environment overrides are:

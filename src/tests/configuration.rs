@@ -92,7 +92,7 @@ fn fills_omitted_yaml_values_from_struct_defaults() {
         configuration.cache.queue_details.max_capacity_bytes,
         8_388_608
     );
-    assert_eq!(configuration.cache.queue_details.ttl_seconds, 60);
+    assert_eq!(configuration.cache.queue_details.ttl_seconds, 300);
     assert_eq!(configuration.database.max_connections, 10);
     assert_eq!(configuration.worker.shutdown_timeout_seconds, 30);
 }
