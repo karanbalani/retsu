@@ -74,16 +74,11 @@ fn cache_max_capacity_bytes() -> u64 {
     8 * 1024 * 1024
 }
 
-fn cache_ttl_seconds() -> u64 {
-    300
-}
-
 impl Default for CachePolicyConfig {
     fn default() -> Self {
         Self {
             max_entries: cache_max_entries(),
             max_capacity_bytes: cache_max_capacity_bytes(),
-            ttl_seconds: cache_ttl_seconds(),
         }
     }
 }

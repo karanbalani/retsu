@@ -76,13 +76,13 @@ where
     let message =
         Message::new(payload, priority, ttl_seconds).map_err(EnqueueMessageError::from)?;
 
-    let queue = queue_repository
-        .queue_details(queue_id)
+    let queue_name = queue_repository
+        .queue_name(queue_id)
         .await
         .map_err(EnqueueMessageError::Persistence)?
         .ok_or(EnqueueMessageError::QueueNotFound)?;
 
-    tracing::Span::current().record("queue.name", queue.name());
+    tracing::Span::current().record("queue.name", &queue_name);
     tracing::Span::current().record("message.priority", message.priority().as_str());
 
     match message_repository
@@ -98,7 +98,7 @@ where
 
     Ok(EnqueuedMessage {
         id: message.id(),
-        queue_name: queue.name().to_owned(),
+        queue_name,
         priority: message.priority(),
     })
 }

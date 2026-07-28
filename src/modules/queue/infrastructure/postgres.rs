@@ -9,7 +9,7 @@ use super::super::{
         QueueExpiredMessagesCleanupSummary, QueuePriorityStateSnapshot, QueueRepository,
         QueueStateRepository, QueueTimeoutProcessingSummary, TimeoutProcessingSummary,
     },
-    domain::{Message, MessagePriority, Queue, QueueDetails},
+    domain::{Message, MessagePriority, Queue},
 };
 
 use anyhow::{Context as _, anyhow};
@@ -71,15 +71,6 @@ struct QueuePriorityStateRow {
     in_flight: i64,
     oldest_ready_age_seconds: f64,
     oldest_in_flight_age_seconds: f64,
-}
-
-#[derive(sqlx::FromRow)]
-struct QueueDetailsRow {
-    id: Uuid,
-    name: String,
-    visibility_timeout_seconds: i32,
-    max_delivery_attempts: i16,
-    default_message_ttl_seconds: i32,
 }
 
 impl QueueRepository for PostgresQueueRepository {
@@ -151,25 +142,20 @@ impl QueueRepository for PostgresQueueRepository {
         skip_all,
         fields(
             db.system.name = "postgresql",
-            db.operation.name = "queue.read_details",
+            db.operation.name = "queue.read_name",
             db.pool.acquire.duration = field::Empty,
             error.type = field::Empty,
             otel.status_code = field::Empty,
         ),
         err
     )]
-    async fn queue_details(&self, queue_id: Uuid) -> Result<Option<QueueDetails>, anyhow::Error> {
+    async fn queue_name(&self, queue_id: Uuid) -> Result<Option<String>, anyhow::Error> {
         let mut connection = database::acquire(&self.pool, &self.metrics).await?;
         let started = Instant::now();
 
-        let result = sqlx::query_as::<_, QueueDetailsRow>(
+        let result = sqlx::query_scalar::<_, String>(
             r#"
-            SELECT
-                id,
-                name,
-                visibility_timeout_seconds,
-                max_delivery_attempts,
-                default_message_ttl_seconds
+            SELECT name
             FROM queue
             WHERE id = $1
             "#,
@@ -179,31 +165,14 @@ impl QueueRepository for PostgresQueueRepository {
         .await;
 
         self.metrics
-            .operation_finished("queue.read_details", started.elapsed(), result.is_ok());
+            .operation_finished("queue.read_name", started.elapsed(), result.is_ok());
 
         if let Err(error) = &result {
             Span::current().record("error.type", database::error_type(error));
             Span::current().record("otel.status_code", "ERROR");
         }
 
-        result?
-            .map(|row| {
-                let visibility_timeout_seconds = u32::try_from(row.visibility_timeout_seconds)
-                    .context("stored queue has a negative visibility timeout")?;
-                let max_delivery_attempts = u16::try_from(row.max_delivery_attempts)
-                    .context("stored queue has a negative delivery attempt limit")?;
-                let default_message_ttl_seconds = u32::try_from(row.default_message_ttl_seconds)
-                    .context("stored queue has a negative default message TTL")?;
-
-                Ok(QueueDetails::new(
-                    row.id,
-                    row.name,
-                    visibility_timeout_seconds,
-                    max_delivery_attempts,
-                    default_message_ttl_seconds,
-                ))
-            })
-            .transpose()
+        Ok(result?)
     }
 }
 

@@ -107,7 +107,7 @@ pub(crate) struct MetricsConfig {
 #[serde(default, deny_unknown_fields)]
 pub(crate) struct CacheConfig {
     #[validate(nested)]
-    pub(crate) queue_details: CachePolicyConfig,
+    pub(crate) queue_names: CachePolicyConfig,
 }
 
 #[derive(Deserialize, Validate)]
@@ -118,15 +118,6 @@ pub(crate) struct CachePolicyConfig {
 
     #[validate(range(min = 1, max = 4_294_967_295_u64))] // 4GB
     pub(crate) max_capacity_bytes: u64,
-
-    #[validate(range(min = 1, max = 86_400))]
-    pub(crate) ttl_seconds: u64,
-}
-
-impl CachePolicyConfig {
-    pub(crate) fn time_to_live(&self) -> Duration {
-        Duration::from_secs(self.ttl_seconds)
-    }
 }
 
 #[derive(Deserialize, Validate)]

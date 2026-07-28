@@ -65,22 +65,20 @@ where
         receipt_handle,
     } = command;
 
-    let queue = queue_repository
-        .queue_details(queue_id)
+    let queue_name = queue_repository
+        .queue_name(queue_id)
         .await
         .map_err(AcknowledgeMessageError::Persistence)?
         .ok_or(AcknowledgeMessageError::QueueNotFound)?;
 
-    tracing::Span::current().record("queue.name", queue.name());
+    tracing::Span::current().record("queue.name", &queue_name);
 
     match message_repository
         .acknowledge_message(queue_id, message_id, receipt_handle)
         .await
         .map_err(AcknowledgeMessageError::Persistence)?
     {
-        AcknowledgeMessageOutcome::Acknowledged => Ok(AcknowledgedMessage {
-            queue_name: queue.name().to_owned(),
-        }),
+        AcknowledgeMessageOutcome::Acknowledged => Ok(AcknowledgedMessage { queue_name }),
 
         AcknowledgeMessageOutcome::QueueNotFound => Err(AcknowledgeMessageError::QueueNotFound),
 

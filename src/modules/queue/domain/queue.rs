@@ -1,4 +1,3 @@
-use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use uuid::Uuid;
@@ -61,51 +60,6 @@ impl Queue {
 
     pub(in crate::modules::queue) fn default_message_ttl_seconds(&self) -> u32 {
         self.settings.default_message_ttl_seconds()
-    }
-
-    pub(in crate::modules::queue) fn details(&self) -> QueueDetails {
-        QueueDetails::new(
-            self.id,
-            self.name().to_owned(),
-            self.visibility_timeout_seconds(),
-            self.max_delivery_attempts(),
-            self.default_message_ttl_seconds(),
-        )
-    }
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub(in crate::modules::queue) struct QueueDetails {
-    id: Uuid,
-    name: String,
-    visibility_timeout_seconds: u32,
-    max_delivery_attempts: u16,
-    default_message_ttl_seconds: u32,
-}
-
-impl QueueDetails {
-    pub(in crate::modules::queue) fn new(
-        id: Uuid,
-        name: String,
-        visibility_timeout_seconds: u32,
-        max_delivery_attempts: u16,
-        default_message_ttl_seconds: u32,
-    ) -> Self {
-        Self {
-            id,
-            name,
-            visibility_timeout_seconds,
-            max_delivery_attempts,
-            default_message_ttl_seconds,
-        }
-    }
-
-    pub(in crate::modules::queue) fn id(&self) -> Uuid {
-        self.id
-    }
-
-    pub(in crate::modules::queue) fn name(&self) -> &str {
-        &self.name
     }
 }
 

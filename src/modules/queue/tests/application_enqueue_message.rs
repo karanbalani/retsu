@@ -14,7 +14,7 @@ use crate::modules::queue::{
         AcknowledgeMessageOutcome, CreateQueueOutcome, DequeueMessageOutcome,
         TimeoutProcessingSummary,
     },
-    domain::{Queue, QueueDetails},
+    domain::Queue,
 };
 
 struct FakeMessageRepository {
@@ -24,28 +24,22 @@ struct FakeMessageRepository {
 }
 
 struct FakeQueueRepository {
-    details: Option<QueueDetails>,
-    detail_calls: AtomicUsize,
+    name: Option<String>,
+    name_calls: AtomicUsize,
 }
 
 impl FakeQueueRepository {
-    fn existing(queue_id: Uuid) -> Self {
+    fn existing(_queue_id: Uuid) -> Self {
         Self {
-            details: Some(QueueDetails::new(
-                queue_id,
-                "email-delivery".to_owned(),
-                30,
-                5,
-                604_800,
-            )),
-            detail_calls: AtomicUsize::new(0),
+            name: Some("email-delivery".to_owned()),
+            name_calls: AtomicUsize::new(0),
         }
     }
 
     fn missing() -> Self {
         Self {
-            details: None,
-            detail_calls: AtomicUsize::new(0),
+            name: None,
+            name_calls: AtomicUsize::new(0),
         }
     }
 }
@@ -55,9 +49,9 @@ impl QueueRepository for FakeQueueRepository {
         unreachable!("enqueue tests should not create queues")
     }
 
-    async fn queue_details(&self, _queue_id: Uuid) -> Result<Option<QueueDetails>, anyhow::Error> {
-        self.detail_calls.fetch_add(1, Ordering::Relaxed);
-        Ok(self.details.clone())
+    async fn queue_name(&self, _queue_id: Uuid) -> Result<Option<String>, anyhow::Error> {
+        self.name_calls.fetch_add(1, Ordering::Relaxed);
+        Ok(self.name.clone())
     }
 }
 
@@ -193,7 +187,7 @@ async fn rejects_invalid_messages_without_calling_the_repository() {
     ));
 
     assert_eq!(repository.enqueue_calls(), 0);
-    assert_eq!(queues.detail_calls.load(Ordering::Relaxed), 0);
+    assert_eq!(queues.name_calls.load(Ordering::Relaxed), 0);
 }
 
 #[tokio::test]
@@ -211,7 +205,7 @@ async fn reports_when_the_target_queue_does_not_exist() {
 
     assert!(matches!(result, Err(EnqueueMessageError::QueueNotFound)));
     assert_eq!(repository.enqueue_calls(), 0);
-    assert_eq!(queues.detail_calls.load(Ordering::Relaxed), 1);
+    assert_eq!(queues.name_calls.load(Ordering::Relaxed), 1);
 }
 
 #[tokio::test]

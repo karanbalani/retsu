@@ -10,7 +10,7 @@ use super::{
     execute_acknowledge_message, execute_process_expired_messages,
     execute_process_timed_out_messages,
 };
-use crate::modules::queue::domain::{Message, Queue, QueueDetails};
+use crate::modules::queue::domain::{Message, Queue};
 
 struct FakeQueueRepository;
 
@@ -19,14 +19,8 @@ impl QueueRepository for FakeQueueRepository {
         unreachable!("lifecycle tests should not create queues")
     }
 
-    async fn queue_details(&self, queue_id: Uuid) -> Result<Option<QueueDetails>, anyhow::Error> {
-        Ok(Some(QueueDetails::new(
-            queue_id,
-            "email-delivery".to_owned(),
-            30,
-            5,
-            604_800,
-        )))
+    async fn queue_name(&self, _queue_id: Uuid) -> Result<Option<String>, anyhow::Error> {
+        Ok(Some("email-delivery".to_owned()))
     }
 }
 

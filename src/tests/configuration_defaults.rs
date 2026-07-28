@@ -43,16 +43,12 @@ fn checked_in_yaml_matches_programmatic_defaults() {
         defaults.telemetry.traces.timeout_seconds
     );
     assert_eq!(
-        from_file.cache.queue_details.max_entries,
-        defaults.cache.queue_details.max_entries
+        from_file.cache.queue_names.max_entries,
+        defaults.cache.queue_names.max_entries
     );
     assert_eq!(
-        from_file.cache.queue_details.max_capacity_bytes,
-        defaults.cache.queue_details.max_capacity_bytes
-    );
-    assert_eq!(
-        from_file.cache.queue_details.ttl_seconds,
-        defaults.cache.queue_details.ttl_seconds
+        from_file.cache.queue_names.max_capacity_bytes,
+        defaults.cache.queue_names.max_capacity_bytes
     );
     assert_eq!(from_file.database.url, defaults.database.url);
     assert_eq!(

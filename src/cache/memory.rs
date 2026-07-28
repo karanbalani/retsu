@@ -1,8 +1,4 @@
-use std::{
-    hash::Hash,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{hash::Hash, sync::Arc, time::Instant};
 
 use moka::future::Cache as MokaCache;
 
@@ -14,11 +10,10 @@ use super::{Cache, CacheError};
 pub(crate) struct MemoryCachePolicy {
     max_entries: u64,
     max_capacity_bytes: u64,
-    time_to_live: Duration,
 }
 
 impl MemoryCachePolicy {
-    pub(crate) fn new(max_entries: u64, max_capacity_bytes: u64, time_to_live: Duration) -> Self {
+    pub(crate) fn new(max_entries: u64, max_capacity_bytes: u64) -> Self {
         assert!(max_entries > 0, "cache max entries must be positive");
         assert!(
             max_capacity_bytes > 0,
@@ -28,7 +23,6 @@ impl MemoryCachePolicy {
         Self {
             max_entries,
             max_capacity_bytes,
-            time_to_live,
         }
     }
 }
@@ -79,7 +73,6 @@ where
             .weigher(move |key, value: &Arc<V>| {
                 weigher(key, value.as_ref()).max(minimum_entry_weight)
             })
-            .time_to_live(policy.time_to_live)
             .build();
 
         Self {

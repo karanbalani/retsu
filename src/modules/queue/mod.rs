@@ -30,19 +30,16 @@ use crate::{
     },
 };
 
-use domain::QueueDetails;
-use infrastructure::{CachedQueueRepository, PostgresQueueRepository};
+use infrastructure::{PostgresQueueRepository, QueueNameCachingRepository};
 
 type QueueStateCollectorLease = <PostgresQueueRepository as QueueStateRepository>::CollectorLease;
-type QueueDetailsMemoryCache = MemoryCache<Uuid, QueueDetails>;
-type CachedPostgresQueueRepository =
-    CachedQueueRepository<PostgresQueueRepository, QueueDetailsMemoryCache>;
+type QueueNameMemoryCache = MemoryCache<Uuid, String>;
+type QueueNameRepository =
+    QueueNameCachingRepository<PostgresQueueRepository, QueueNameMemoryCache>;
 
-fn queue_details_weight(queue_id: &Uuid, details: &QueueDetails) -> u32 {
+fn queue_name_weight(queue_id: &Uuid, queue_name: &String) -> u32 {
     u32::try_from(
-        std::mem::size_of_val(queue_id)
-            + std::mem::size_of::<QueueDetails>()
-            + details.name().len(),
+        std::mem::size_of_val(queue_id) + std::mem::size_of::<String>() + queue_name.capacity(),
     )
     .unwrap_or(u32::MAX)
 }
@@ -69,7 +66,7 @@ pub(super) const DEFINITION: ModuleDefinition = ModuleDefinition::new("queue")
 #[derive(Clone)]
 pub(crate) struct QueueModule {
     postgres_repository: PostgresQueueRepository,
-    cached_queue_repository: CachedPostgresQueueRepository,
+    queue_name_repository: QueueNameRepository,
     instrumentation: QueueInstrumentation,
 }
 
@@ -85,20 +82,19 @@ impl QueueModule {
         let cache_policy = MemoryCachePolicy::new(
             cache_configuration.max_entries,
             cache_configuration.max_capacity_bytes,
-            cache_configuration.time_to_live(),
         );
-        let queue_details_cache = MemoryCache::new(
-            "queue_details",
+        let queue_name_cache = MemoryCache::new(
+            "queue_names",
             cache_policy,
-            queue_details_weight,
+            queue_name_weight,
             cache_metrics,
         );
-        let cached_queue_repository =
-            CachedQueueRepository::new(postgres_repository.clone(), queue_details_cache);
+        let queue_name_repository =
+            QueueNameCachingRepository::new(postgres_repository.clone(), queue_name_cache);
 
         Self {
             postgres_repository,
-            cached_queue_repository,
+            queue_name_repository,
             instrumentation,
         }
     }
@@ -107,7 +103,7 @@ impl QueueModule {
         &self,
         command: CreateQueueCommand,
     ) -> Result<CreatedQueue, CreateQueueError> {
-        execute_create_queue(&self.cached_queue_repository, command).await
+        execute_create_queue(&self.queue_name_repository, command).await
     }
 
     async fn enqueue_message(
@@ -116,7 +112,7 @@ impl QueueModule {
     ) -> Result<EnqueuedMessage, EnqueueMessageError> {
         let queue_id = command.queue_id();
         let message = match execute_enqueue_message(
-            &self.cached_queue_repository,
+            &self.queue_name_repository,
             &self.postgres_repository,
             command,
         )
@@ -124,8 +120,8 @@ impl QueueModule {
         {
             Ok(message) => message,
             Err(error @ EnqueueMessageError::QueueNotFound) => {
-                self.cached_queue_repository
-                    .invalidate_queue_details(queue_id)
+                self.queue_name_repository
+                    .invalidate_queue_name(queue_id)
                     .await;
 
                 return Err(error);
@@ -153,7 +149,7 @@ impl QueueModule {
     ) -> Result<(), AcknowledgeMessageError> {
         let queue_id = command.queue_id();
         let message = match execute_acknowledge_message(
-            &self.cached_queue_repository,
+            &self.queue_name_repository,
             &self.postgres_repository,
             command,
         )
@@ -161,8 +157,8 @@ impl QueueModule {
         {
             Ok(message) => message,
             Err(error @ AcknowledgeMessageError::QueueNotFound) => {
-                self.cached_queue_repository
-                    .invalidate_queue_details(queue_id)
+                self.queue_name_repository
+                    .invalidate_queue_name(queue_id)
                     .await;
 
                 return Err(error);

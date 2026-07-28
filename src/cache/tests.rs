@@ -11,9 +11,9 @@ use anyhow::anyhow;
 use super::{Cache, MemoryCache, MemoryCachePolicy};
 use crate::observability::test_metrics;
 
-fn cache(time_to_live: Duration) -> MemoryCache<u64, String> {
+fn cache() -> MemoryCache<u64, String> {
     let (_, metrics) = test_metrics();
-    let policy = MemoryCachePolicy::new(100, 1024 * 1024, time_to_live);
+    let policy = MemoryCachePolicy::new(100, 1024 * 1024);
 
     MemoryCache::new(
         "test_values",
@@ -30,7 +30,7 @@ fn cache(time_to_live: Duration) -> MemoryCache<u64, String> {
 
 #[tokio::test]
 async fn loads_once_and_reuses_the_cached_value() {
-    let cache = cache(Duration::from_secs(60));
+    let cache = cache();
     let loads = AtomicUsize::new(0);
 
     for _ in 0..2 {
@@ -51,7 +51,7 @@ async fn loads_once_and_reuses_the_cached_value() {
 
 #[tokio::test]
 async fn coalesces_concurrent_loads_for_the_same_key() {
-    let cache = cache(Duration::from_secs(60));
+    let cache = cache();
     let loads = Arc::new(AtomicUsize::new(0));
     let mut tasks = Vec::new();
 
@@ -82,7 +82,7 @@ async fn coalesces_concurrent_loads_for_the_same_key() {
 
 #[tokio::test]
 async fn does_not_cache_missing_values_or_loader_errors() {
-    let cache = cache(Duration::from_secs(60));
+    let cache = cache();
     let missing_loads = AtomicUsize::new(0);
 
     for _ in 0..2 {
@@ -115,8 +115,8 @@ async fn does_not_cache_missing_values_or_loader_errors() {
 }
 
 #[tokio::test]
-async fn reloads_after_expiration_and_explicit_invalidation() {
-    let cache = cache(Duration::from_millis(20));
+async fn reloads_after_explicit_invalidation() {
+    let cache = cache();
     let loads = AtomicUsize::new(0);
 
     let load = || async {
@@ -131,31 +131,22 @@ async fn reloads_after_expiration_and_explicit_invalidation() {
         .expect("initial load should return a value");
     assert_eq!(first.as_str(), "value-1");
 
-    tokio::time::sleep(Duration::from_millis(40)).await;
-
-    let second = cache
-        .get_or_load(42, load)
-        .await
-        .expect("expired value should reload")
-        .expect("reload should return a value");
-    assert_eq!(second.as_str(), "value-2");
-
     cache
         .invalidate(&42)
         .await
         .expect("invalidation should succeed");
 
-    let third = cache
+    let second = cache
         .get_or_load(42, load)
         .await
         .expect("invalidated value should reload")
         .expect("reload should return a value");
-    assert_eq!(third.as_str(), "value-3");
+    assert_eq!(second.as_str(), "value-2");
 }
 
 #[tokio::test]
 async fn explicit_insert_replaces_the_cached_value() {
-    let cache = cache(Duration::from_secs(60));
+    let cache = cache();
 
     cache
         .insert(42, Arc::new("first".to_owned()))
@@ -180,11 +171,39 @@ async fn explicit_insert_replaces_the_cached_value() {
 }
 
 #[tokio::test]
+async fn retains_values_without_a_time_expiration_policy() {
+    let (_, metrics) = test_metrics();
+    let cache = MemoryCache::new(
+        "non_expiring_values",
+        MemoryCachePolicy::new(100, 1024 * 1024),
+        |_key: &u64, value: &String| u32::try_from(value.len()).unwrap_or(u32::MAX),
+        metrics.cache().clone(),
+    );
+    let loads = AtomicUsize::new(0);
+
+    for _ in 0..2 {
+        let value = cache
+            .get_or_load(42, || async {
+                loads.fetch_add(1, Ordering::Relaxed);
+                Ok::<_, anyhow::Error>(Some("value".to_owned()))
+            })
+            .await
+            .expect("loader should succeed")
+            .expect("loader should return a value");
+
+        assert_eq!(value.as_str(), "value");
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+
+    assert_eq!(loads.load(Ordering::Relaxed), 1);
+}
+
+#[tokio::test]
 async fn enforces_entry_and_weighted_byte_limits() {
     let (_, metrics) = test_metrics();
     let entry_limited = MemoryCache::new(
         "entry_limited",
-        MemoryCachePolicy::new(2, 1_000, Duration::from_secs(60)),
+        MemoryCachePolicy::new(2, 1_000),
         |_key: &u64, _value: &String| 1,
         metrics.cache().clone(),
     );
@@ -202,7 +221,7 @@ async fn enforces_entry_and_weighted_byte_limits() {
 
     let byte_limited = MemoryCache::new(
         "byte_limited",
-        MemoryCachePolicy::new(100, 100, Duration::from_secs(60)),
+        MemoryCachePolicy::new(100, 100),
         |_key: &u64, value: &String| u32::try_from(value.len()).unwrap_or(u32::MAX),
         metrics.cache().clone(),
     );

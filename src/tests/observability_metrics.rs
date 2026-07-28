@@ -102,9 +102,9 @@ fn cache_metrics_report_named_hits_misses_and_load_outcomes() {
     let (provider, metrics) = test_metrics();
     let cache = metrics.cache();
 
-    cache.request("queue_details", "hit");
-    cache.request("queue_details", "miss");
-    cache.load_finished("queue_details", Duration::from_millis(25), "success");
+    cache.request("queue_names", "hit");
+    cache.request("queue_names", "miss");
+    cache.load_finished("queue_names", Duration::from_millis(25), "success");
 
     let output = String::from_utf8(metrics.encode_prometheus().expect("metrics should encode"))
         .expect("metrics should be UTF-8");
@@ -112,19 +112,19 @@ fn cache_metrics_report_named_hits_misses_and_load_outcomes() {
     assert_metric_value(
         &output,
         "cache_requests_total",
-        &[("cache_name", "queue_details"), ("outcome", "hit")],
+        &[("cache_name", "queue_names"), ("outcome", "hit")],
         "1",
     );
     assert_metric_value(
         &output,
         "cache_requests_total",
-        &[("cache_name", "queue_details"), ("outcome", "miss")],
+        &[("cache_name", "queue_names"), ("outcome", "miss")],
         "1",
     );
     assert_metric_value(
         &output,
         "cache_load_duration_seconds_count",
-        &[("cache_name", "queue_details"), ("outcome", "success")],
+        &[("cache_name", "queue_names"), ("outcome", "success")],
         "1",
     );
 
