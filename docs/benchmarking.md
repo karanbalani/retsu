@@ -73,6 +73,18 @@ summary and retains the complete Criterion report as a workflow artifact.
 Concurrent rows include operations per second in addition to batch latency. The
 workflow is informational: a reported regression does not fail the job.
 
+The summary begins with the question being tested and a plain-language
+conclusion. It then explains how to interpret each verdict before showing the
+commit identifiers and measurement settings. In particular, no directional
+claim is made for an inconclusive or unstable result:
+
+- **Improved** or **regressed** means both pairs agree on a change beyond the
+  practical noise band and both same-code controls are stable.
+- **Inconclusive** means runner conditions were stable, but the change was
+  inside the practical noise band or the two pairs did not agree.
+- **Unstable** means unchanged base code also drifted beyond the practical noise
+  band, so the observed movement cannot be attributed to the candidate.
+
 GitHub-hosted virtual machines introduce measurement noise. Base and candidate
 results therefore remain paired in one job. Each pair measures the base again
 after the candidate. A material difference between the initial and control base
