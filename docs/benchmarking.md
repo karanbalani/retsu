@@ -50,11 +50,12 @@ dedicated `retsu_benchmark` schema and applies that commit's migrations. This
 keeps database process and host conditions constant without carrying queue data
 or schema changes between passes.
 
-Standard Linux runners for private repositories provide two CPUs. The workflow
-builds both commits before measurement, pins Retsu and the load generator to CPU
-0, and pins PostgreSQL to CPU 1. It refuses a runner with fewer than two CPUs.
-The reported values therefore describe a normalized one-CPU application and
-one-CPU database comparison, not the absolute capacity of a production host.
+[Standard Linux runners for private repositories][github-runner-specs] provide
+two CPUs. The workflow builds both commits before starting either measurement
+pair, so compilation is excluded and cannot warm only the first measured
+commit. Retsu, the load generator, and PostgreSQL share the runner under the
+operating-system scheduler. The reported values describe a paired comparison
+on this runner class, not the absolute capacity of a production host.
 
 Maintenance workers are intentionally outside this suite. Their production
 entrypoints are scheduled polling loops, not bounded requests, so a latency
@@ -76,11 +77,22 @@ measurements marks the combined result as unstable runner drift instead of
 attributing that difference to the candidate.
 
 An improvement or regression is reported only when both pairs have stable
-controls and agree on the direction. Stable pairs that disagree, or where
-either result crosses the practical noise threshold, are inconclusive. This
-agreement rule reduces the chance that one unusually fast or slow hosted-runner
-interval is mistaken for an application change.
+controls and agree on the direction. A control is stable only when its entire
+change confidence interval fits inside the mode's practical noise band. A
+candidate is directional only when its entire change confidence interval lies
+outside that band. Stable pairs that disagree or are not directional are
+inconclusive. This agreement rule reduces the chance that one unusually fast or
+slow hosted-runner interval is mistaken for an application change.
 
-Standard mode should normally complete within 20 minutes when the build cache
-is warm. Thorough mode has a 60-minute job limit. The report should still be
-rerun when an expected improvement is close to the noise threshold.
+| Mode | Samples | Warm-up per workload | Measurement per workload | Practical noise band |
+| --- | ---: | ---: | ---: | ---: |
+| Standard | 100 | 5 seconds | 10 seconds | ±10% |
+| Thorough | 200 | 10 seconds | 30 seconds | ±5% |
+
+Standard mode is the faster signal for changes larger than about 10% and should
+normally complete within 30 minutes when the build cache is warm. Thorough mode
+spends more time resolving changes around 5% and has a 60-minute job limit.
+Changes below the selected band are deliberately reported as inconclusive;
+rerun a result near the boundary before drawing a conclusion.
+
+[github-runner-specs]: https://docs.github.com/en/actions/reference/runners/github-hosted-runners
