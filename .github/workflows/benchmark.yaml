@@ -1,7 +1,10 @@
 name: Benchmark
-run-name: Benchmark ${{ github.ref_name }} (${{ inputs.mode }})
+run-name: Benchmark ${{ github.ref_name }} (${{ inputs.mode || 'standard' }})
 
 on:
+  push:
+    branches:
+      - test/benchmark-foundation-run
   workflow_dispatch:
     inputs:
       mode:
@@ -64,7 +67,7 @@ jobs:
 
       - name: Configure measurement depth
         env:
-          MODE: ${{ inputs.mode }}
+          MODE: ${{ inputs.mode || 'standard' }}
         run: |
           if [[ "$MODE" == "thorough" ]]; then
             echo "BENCHMARK_SAMPLE_SIZE=200" >> "$GITHUB_ENV"
@@ -83,7 +86,11 @@ jobs:
           git fetch --no-tags origin main
 
           candidate_sha="$GITHUB_SHA"
-          base_sha="$(git merge-base "$candidate_sha" origin/main)"
+          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+            base_sha="$(git rev-parse "$candidate_sha^")"
+          else
+            base_sha="$(git merge-base "$candidate_sha" origin/main)"
+          fi
 
           echo "CANDIDATE_SHA=$candidate_sha" >> "$GITHUB_ENV"
           echo "BASE_SHA=$base_sha" >> "$GITHUB_ENV"
@@ -181,7 +188,7 @@ jobs:
 
       - name: Write benchmark summary
         env:
-          MODE: ${{ inputs.mode }}
+          MODE: ${{ inputs.mode || 'standard' }}
         run: |
           python3 scripts/benchmark_summary.py \
             --pair \
