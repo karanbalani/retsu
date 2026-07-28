@@ -27,7 +27,7 @@ cache:
   distributed:
     enabled: true
     url: redis://127.0.0.1:24251
-    connection_timeout_milliseconds: 50
+    connection_timeout_milliseconds: 500
     command_timeout_milliseconds: 20
 
 database:
