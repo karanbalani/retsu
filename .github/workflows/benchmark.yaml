@@ -28,7 +28,7 @@ jobs:
   compare:
     name: Compare with branch base
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     steps:
       - name: Check out candidate
@@ -82,49 +82,93 @@ jobs:
             exit 1
           fi
 
-      - name: Measure base
+      - name: Measure pair 1 base
         run: |
           git switch --detach "$BASE_SHA"
           rm -rf target/criterion
           cargo bench --locked --bench queue_operations -- \
-            --save-baseline base \
+            --save-baseline pair-1-base \
             --sample-size "$BENCHMARK_SAMPLE_SIZE" \
             --warm-up-time "$BENCHMARK_WARM_UP_SECONDS" \
             --measurement-time "$BENCHMARK_MEASUREMENT_SECONDS" \
             --noplot
 
-      - name: Measure candidate
+      - name: Measure pair 1 candidate
         run: |
           git switch --detach "$CANDIDATE_SHA"
           cargo bench --locked --bench queue_operations -- \
-            --baseline base \
+            --baseline pair-1-base \
             --sample-size "$BENCHMARK_SAMPLE_SIZE" \
             --warm-up-time "$BENCHMARK_WARM_UP_SECONDS" \
             --measurement-time "$BENCHMARK_MEASUREMENT_SECONDS"
 
-          mkdir -p "$RUNNER_TEMP/benchmark-results"
-          cp -R target/criterion "$RUNNER_TEMP/benchmark-results/candidate"
+          mkdir -p "$RUNNER_TEMP/benchmark-results/pair-1/candidate"
+          cp -R target/criterion/. "$RUNNER_TEMP/benchmark-results/pair-1/candidate"
 
-      - name: Measure same-code control
+      - name: Measure pair 1 same-code control
         run: |
           git switch --detach "$BASE_SHA"
           cargo bench --locked --bench queue_operations -- \
-            --baseline base \
+            --baseline pair-1-base \
             --sample-size "$BENCHMARK_SAMPLE_SIZE" \
             --warm-up-time "$BENCHMARK_WARM_UP_SECONDS" \
             --measurement-time "$BENCHMARK_MEASUREMENT_SECONDS" \
             --noplot
 
-          cp -R target/criterion "$RUNNER_TEMP/benchmark-results/control"
+          mkdir -p "$RUNNER_TEMP/benchmark-results/pair-1/control"
+          cp -R target/criterion/. "$RUNNER_TEMP/benchmark-results/pair-1/control"
+
+      - name: Measure pair 2 base
+        run: |
+          git switch --detach "$BASE_SHA"
+          rm -rf target/criterion
+          cargo bench --locked --bench queue_operations -- \
+            --save-baseline pair-2-base \
+            --sample-size "$BENCHMARK_SAMPLE_SIZE" \
+            --warm-up-time "$BENCHMARK_WARM_UP_SECONDS" \
+            --measurement-time "$BENCHMARK_MEASUREMENT_SECONDS" \
+            --noplot
+
+      - name: Measure pair 2 candidate
+        run: |
+          git switch --detach "$CANDIDATE_SHA"
+          cargo bench --locked --bench queue_operations -- \
+            --baseline pair-2-base \
+            --sample-size "$BENCHMARK_SAMPLE_SIZE" \
+            --warm-up-time "$BENCHMARK_WARM_UP_SECONDS" \
+            --measurement-time "$BENCHMARK_MEASUREMENT_SECONDS"
+
+          mkdir -p "$RUNNER_TEMP/benchmark-results/pair-2/candidate"
+          cp -R target/criterion/. "$RUNNER_TEMP/benchmark-results/pair-2/candidate"
+
+      - name: Measure pair 2 same-code control
+        run: |
+          git switch --detach "$BASE_SHA"
+          cargo bench --locked --bench queue_operations -- \
+            --baseline pair-2-base \
+            --sample-size "$BENCHMARK_SAMPLE_SIZE" \
+            --warm-up-time "$BENCHMARK_WARM_UP_SECONDS" \
+            --measurement-time "$BENCHMARK_MEASUREMENT_SECONDS" \
+            --noplot
+
+          mkdir -p "$RUNNER_TEMP/benchmark-results/pair-2/control"
+          cp -R target/criterion/. "$RUNNER_TEMP/benchmark-results/pair-2/control"
 
       - name: Write benchmark summary
         env:
           MODE: ${{ inputs.mode }}
         run: |
           python3 scripts/benchmark_summary.py \
-            --criterion-directory "$RUNNER_TEMP/benchmark-results/candidate" \
-            --control-directory "$RUNNER_TEMP/benchmark-results/control" \
-            --baseline base \
+            --pair \
+              "Pair 1" \
+              "$RUNNER_TEMP/benchmark-results/pair-1/candidate" \
+              "$RUNNER_TEMP/benchmark-results/pair-1/control" \
+              pair-1-base \
+            --pair \
+              "Pair 2" \
+              "$RUNNER_TEMP/benchmark-results/pair-2/candidate" \
+              "$RUNNER_TEMP/benchmark-results/pair-2/control" \
+              pair-2-base \
             --base "$BASE_SHA" \
             --candidate "$CANDIDATE_SHA" \
             --mode "$MODE" \
