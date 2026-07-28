@@ -40,9 +40,12 @@ setup, queue creation, migrations, and queue-depth seeding happen outside the
 timed interval. Full-lifecycle and concurrent measurements time all three
 public requests and finish with an empty queue.
 
-The depth fixtures are inserted directly into PostgreSQL before measurement.
-This makes the dequeue result describe the production dequeue path at a known
-queue depth instead of timing thousands of setup requests.
+The depth fixtures are inserted directly into PostgreSQL before every Criterion
+sample, outside the returned measured duration. The dedicated message tables are
+reset first so repeated lease-and-restore updates cannot carry dead tuples or
+autovacuum work from one sample into the next. This makes the dequeue result
+describe the production dequeue path at a known queue depth instead of timing
+thousands of setup requests or fixture aging.
 
 GitHub Actions keeps one pinned PostgreSQL service alive for every measurement
 pair. Before each base, candidate, or control pass, the harness resets the
