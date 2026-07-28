@@ -5,8 +5,8 @@ use crate::{database, observability::DatabaseMetrics};
 use super::super::{
     application::{
         AcknowledgeMessageOutcome, CreateQueueOutcome, DequeueMessageOutcome,
-        EnqueueMessageOutcome, ExpiredMessagesCleanupSummary, QueueExpiredMessagesCleanupSummary,
-        QueueRepository, QueueTimeoutProcessingSummary, TimeoutProcessingSummary,
+        ExpiredMessagesCleanupSummary, QueueExpiredMessagesCleanupSummary, QueueRepository,
+        QueueTimeoutProcessingSummary, TimeoutProcessingSummary,
     },
     domain::{Message, MessagePriority, Queue, QueueConfigurationUpdate, QueueDetails},
 };
@@ -35,13 +35,6 @@ struct DequeueMessageRow {
     payload: Option<Vec<u8>>,
     priority: Option<i16>,
     delivery_attempts: Option<i16>,
-}
-
-#[derive(sqlx::FromRow)]
-struct AcknowledgeMessageRow {
-    queue_exists: bool,
-    message_exists: bool,
-    acknowledged: bool,
 }
 
 #[derive(sqlx::FromRow)]
@@ -320,42 +313,32 @@ impl QueueRepository for PostgresQueueRepository {
         &self,
         queue_id: Uuid,
         message: &Message,
-    ) -> Result<EnqueueMessageOutcome, anyhow::Error> {
-        let ttl_seconds = message.ttl_seconds().map(i64::from);
-
+        effective_ttl_seconds: u32,
+    ) -> Result<(), anyhow::Error> {
         let mut connection = database::acquire(&self.pool, &self.metrics).await?;
 
         let started = Instant::now();
 
-        let result = sqlx::query_scalar::<_, Uuid>(
+        let result = sqlx::query(
             r#"
             INSERT INTO queue_message (
                 id, queue_id, payload, priority, expires_at
             )
-            SELECT
+            VALUES (
                 $1,
-                queue.id,
                 $2,
                 $3,
-                CURRENT_TIMESTAMP
-                    + (
-                        COALESCE(
-                            $4::BIGINT,
-                            queue.default_message_ttl_seconds::BIGINT
-                        )
-                        * INTERVAL '1 second'
-                    )
-            FROM queue
-            WHERE queue.id = $5
-            RETURNING id
+                $4,
+                CURRENT_TIMESTAMP + ($5::BIGINT * INTERVAL '1 second')
+            )
             "#,
         )
         .bind(message.id())
+        .bind(queue_id)
         .bind(message.payload().as_bytes())
         .bind(message.priority().rank())
-        .bind(ttl_seconds)
-        .bind(queue_id)
-        .fetch_optional(&mut *connection)
+        .bind(i64::from(effective_ttl_seconds))
+        .execute(&mut *connection)
         .await;
 
         self.metrics
@@ -366,11 +349,8 @@ impl QueueRepository for PostgresQueueRepository {
             Span::current().record("otel.status_code", "ERROR");
         }
 
-        let inserted_id = result?;
-        match inserted_id {
-            Some(_) => Ok(EnqueueMessageOutcome::Enqueued),
-            None => Ok(EnqueueMessageOutcome::QueueNotFound),
-        }
+        result?;
+        Ok(())
     }
 
     #[tracing::instrument(
@@ -517,47 +497,20 @@ impl QueueRepository for PostgresQueueRepository {
 
         let started = Instant::now();
 
-        let result = sqlx::query_as::<_, AcknowledgeMessageRow>(
+        let result = sqlx::query_scalar::<_, Uuid>(
             r#"
-            WITH target_queue AS MATERIALIZED (
-                SELECT id
-                FROM queue
-                WHERE id = $1
-            ),
-            target_message AS MATERIALIZED (
-                SELECT message.id
-                FROM queue_message AS message
-                WHERE message.queue_id = $1
-                  AND message.id = $2
-            ),
-            acknowledged AS (
-                DELETE FROM queue_message AS message
-                WHERE message.queue_id = $1
-                    AND message.id = $2
-                    AND message.state = 'IN_FLIGHT'
-                    AND message.receipt_handle = $3
-                    AND message.visibility_deadline > CURRENT_TIMESTAMP
-                RETURNING message.id
-            )
-            SELECT
-                EXISTS (
-                    SELECT 1
-                    FROM target_queue
-                ) AS queue_exists,
-                EXISTS (
-                    SELECT 1
-                    FROM target_message
-                ) AS message_exists,
-                EXISTS (
-                    SELECT 1
-                    FROM acknowledged
-                ) AS acknowledged
+            DELETE FROM queue_message
+            WHERE id = $1
+              AND queue_id = $2
+              AND receipt_handle = $3
+              AND visibility_deadline > CURRENT_TIMESTAMP
+            RETURNING id
             "#,
         )
-        .bind(queue_id)
         .bind(message_id)
+        .bind(queue_id)
         .bind(receipt_handle)
-        .fetch_one(&mut *connection)
+        .fetch_optional(&mut *connection)
         .await;
 
         self.metrics
@@ -568,16 +521,9 @@ impl QueueRepository for PostgresQueueRepository {
             Span::current().record("otel.status_code", "ERROR");
         }
 
-        let row = result?;
-
-        match (row.queue_exists, row.message_exists, row.acknowledged) {
-            (_, _, true) => Ok(AcknowledgeMessageOutcome::Acknowledged),
-
-            (false, _, false) => Ok(AcknowledgeMessageOutcome::QueueNotFound),
-
-            (true, false, false) => Ok(AcknowledgeMessageOutcome::MessageNotFound),
-
-            (true, true, false) => Ok(AcknowledgeMessageOutcome::ReceiptHandleInvalid),
+        match result? {
+            Some(_) => Ok(AcknowledgeMessageOutcome::Acknowledged),
+            None => Ok(AcknowledgeMessageOutcome::Unchanged),
         }
     }
 

@@ -59,9 +59,10 @@ Keeping event metrics at the queue-operation boundary means a future CLI does
 not need another metrics implementation. HTTP handlers do not own queue
 business metrics.
 
-The enqueue and acknowledge command counters use `queue.name`. Queue names are
-resolved through the process-local, capacity-bounded cache, so a cache hit does
-not add a database query. Worker and state metrics also use `queue.name`.
+The enqueue and acknowledge command counters use `queue.name`. Enqueueing gets
+the name together with the default TTL through the distributed queue-details
+cache. Acknowledgement resolves the immutable name through the process-local,
+capacity-bounded cache. Worker and state metrics also use `queue.name`.
 
 ## Why one aggregate query is not enough
 

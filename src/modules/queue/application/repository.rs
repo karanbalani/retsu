@@ -9,11 +9,6 @@ pub(in crate::modules::queue) enum CreateQueueOutcome {
     AlreadyExists,
 }
 
-pub(in crate::modules::queue) enum EnqueueMessageOutcome {
-    Enqueued,
-    QueueNotFound,
-}
-
 pub(in crate::modules::queue) enum DequeueMessageOutcome {
     Dequeued {
         id: Uuid,
@@ -28,9 +23,7 @@ pub(in crate::modules::queue) enum DequeueMessageOutcome {
 
 pub(in crate::modules::queue) enum AcknowledgeMessageOutcome {
     Acknowledged,
-    QueueNotFound,
-    MessageNotFound,
-    ReceiptHandleInvalid,
+    Unchanged,
 }
 
 #[derive(Debug)]
@@ -190,7 +183,8 @@ pub(in crate::modules::queue) trait QueueRepository {
         &self,
         queue_id: Uuid,
         message: &Message,
-    ) -> Result<EnqueueMessageOutcome, anyhow::Error>;
+        effective_ttl_seconds: u32,
+    ) -> Result<(), anyhow::Error>;
 
     async fn dequeue_message(
         &self,

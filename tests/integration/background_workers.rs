@@ -42,11 +42,9 @@ async fn visibility_timeout_worker_requeues_then_dead_letters() -> anyhow::Resul
         first_delivery.receipt_handle
     );
 
-    let rejection_code = system
-        .rejected_acknowledgement_code(queue_id, message_id, first_delivery.receipt_handle)
+    system
+        .acknowledge_message(queue_id, message_id, first_delivery.receipt_handle)
         .await?;
-
-    assert_eq!(rejection_code, "invalid_receipt_handle");
     assert!(system.message_exists(message_id).await?);
 
     let reason = eventually(

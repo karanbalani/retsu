@@ -101,7 +101,7 @@ fn distributed_cache_url() -> String {
 }
 
 fn distributed_cache_connection_timeout_milliseconds() -> u64 {
-    50
+    500
 }
 
 fn distributed_cache_command_timeout_milliseconds() -> u64 {

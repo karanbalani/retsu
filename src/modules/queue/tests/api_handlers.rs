@@ -81,16 +81,6 @@ async fn maps_queue_failures_to_stable_http_error_codes() {
             StatusCode::NOT_FOUND,
             "queue_not_found",
         ),
-        (
-            map_acknowledge_message_error(AcknowledgeMessageError::MessageNotFound),
-            StatusCode::NOT_FOUND,
-            "message_not_found",
-        ),
-        (
-            map_acknowledge_message_error(AcknowledgeMessageError::ReceiptHandleInvalid),
-            StatusCode::CONFLICT,
-            "invalid_receipt_handle",
-        ),
     ];
 
     for (error, expected_status, expected_code) in cases {

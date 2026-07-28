@@ -74,11 +74,6 @@ struct EnqueueMessageResponse {
     id: Uuid,
 }
 
-#[derive(Deserialize)]
-struct ProblemDetails {
-    code: String,
-}
-
 impl IntegrationSystem {
     pub async fn start() -> anyhow::Result<Self> {
         let log_directory =
@@ -322,35 +317,6 @@ impl IntegrationSystem {
         expect_status(response, StatusCode::NO_CONTENT, "acknowledge message").await
     }
 
-    pub async fn rejected_acknowledgement_code(
-        &self,
-        queue_id: Uuid,
-        message_id: Uuid,
-        receipt_handle: Uuid,
-    ) -> anyhow::Result<String> {
-        let response = self
-            .client
-            .post(format!(
-                "{}/v1/queues/{queue_id}/messages/{message_id}/acknowledge",
-                self.api_base_url
-            ))
-            .json(&json!({ "receipt_handle": receipt_handle }))
-            .send()
-            .await
-            .context("rejected message acknowledgement request failed")?;
-
-        let body = expect_body(
-            response,
-            StatusCode::CONFLICT,
-            "reject message acknowledgement",
-        )
-        .await?;
-        let problem: ProblemDetails =
-            serde_json::from_str(&body).context("acknowledgement error was not valid JSON")?;
-
-        Ok(problem.code)
-    }
-
     pub async fn worker_metrics(&self, worker: &WorkerEndpoint) -> anyhow::Result<String> {
         let response = self
             .client
@@ -368,6 +334,22 @@ impl IntegrationSystem {
             .fetch_one(&self.database_pool)
             .await
             .context("failed to inspect active message persistence")
+    }
+
+    pub async fn message_ttl_seconds(&self, message_id: Uuid) -> anyhow::Result<f64> {
+        sqlx::query_scalar(
+            r#"
+            SELECT EXTRACT(
+                EPOCH FROM (expires_at - enqueued_at)
+            )::DOUBLE PRECISION
+            FROM queue_message
+            WHERE id = $1
+            "#,
+        )
+        .bind(message_id)
+        .fetch_one(&self.database_pool)
+        .await
+        .context("failed to inspect persisted message TTL")
     }
 
     pub async fn insert_queue(

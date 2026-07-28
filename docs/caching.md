@@ -29,6 +29,10 @@ queue_details(queue_id)
     -> PostgreSQL
 ```
 
+Message enqueueing uses this complete-details path to resolve the effective
+message TTL. The PostgreSQL write then inserts directly into `queue_message`
+without reading the `queue` table again.
+
 The in-memory cache is private to one process. The distributed cache is shared
 by API and worker replicas.
 
