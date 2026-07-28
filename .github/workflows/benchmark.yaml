@@ -44,6 +44,7 @@ jobs:
           --health-interval 2s
           --health-timeout 5s
           --health-retries 15
+          --cpuset-cpus 1
 
     steps:
       - name: Check out candidate
@@ -97,11 +98,30 @@ jobs:
             exit 1
           fi
 
+      - name: Verify benchmark CPU topology
+        run: |
+          cpu_count="$(nproc)"
+          if [[ "$cpu_count" -lt 2 ]]; then
+            echo "::error::Benchmarking requires at least two runner CPUs."
+            exit 1
+          fi
+
+          echo "Runner CPUs: $cpu_count"
+          echo "Retsu and the load generator use CPU 0; PostgreSQL uses CPU 1."
+
+      - name: Build base and candidate benchmarks
+        run: |
+          git switch --detach "$BASE_SHA"
+          cargo bench --locked --bench queue_operations --no-run
+
+          git switch --detach "$CANDIDATE_SHA"
+          cargo bench --locked --bench queue_operations --no-run
+
       - name: Measure pair 1 base
         run: |
           git switch --detach "$BASE_SHA"
           rm -rf target/criterion
-          cargo bench --locked --bench queue_operations -- \
+          taskset --cpu-list 0 cargo bench --locked --bench queue_operations -- \
             --save-baseline pair-1-base \
             --sample-size "$BENCHMARK_SAMPLE_SIZE" \
             --warm-up-time "$BENCHMARK_WARM_UP_SECONDS" \
@@ -111,7 +131,7 @@ jobs:
       - name: Measure pair 1 candidate
         run: |
           git switch --detach "$CANDIDATE_SHA"
-          cargo bench --locked --bench queue_operations -- \
+          taskset --cpu-list 0 cargo bench --locked --bench queue_operations -- \
             --baseline pair-1-base \
             --sample-size "$BENCHMARK_SAMPLE_SIZE" \
             --warm-up-time "$BENCHMARK_WARM_UP_SECONDS" \
@@ -123,7 +143,7 @@ jobs:
       - name: Measure pair 1 same-code control
         run: |
           git switch --detach "$BASE_SHA"
-          cargo bench --locked --bench queue_operations -- \
+          taskset --cpu-list 0 cargo bench --locked --bench queue_operations -- \
             --baseline pair-1-base \
             --sample-size "$BENCHMARK_SAMPLE_SIZE" \
             --warm-up-time "$BENCHMARK_WARM_UP_SECONDS" \
@@ -137,7 +157,7 @@ jobs:
         run: |
           git switch --detach "$BASE_SHA"
           rm -rf target/criterion
-          cargo bench --locked --bench queue_operations -- \
+          taskset --cpu-list 0 cargo bench --locked --bench queue_operations -- \
             --save-baseline pair-2-base \
             --sample-size "$BENCHMARK_SAMPLE_SIZE" \
             --warm-up-time "$BENCHMARK_WARM_UP_SECONDS" \
@@ -147,7 +167,7 @@ jobs:
       - name: Measure pair 2 candidate
         run: |
           git switch --detach "$CANDIDATE_SHA"
-          cargo bench --locked --bench queue_operations -- \
+          taskset --cpu-list 0 cargo bench --locked --bench queue_operations -- \
             --baseline pair-2-base \
             --sample-size "$BENCHMARK_SAMPLE_SIZE" \
             --warm-up-time "$BENCHMARK_WARM_UP_SECONDS" \
@@ -159,7 +179,7 @@ jobs:
       - name: Measure pair 2 same-code control
         run: |
           git switch --detach "$BASE_SHA"
-          cargo bench --locked --bench queue_operations -- \
+          taskset --cpu-list 0 cargo bench --locked --bench queue_operations -- \
             --baseline pair-2-base \
             --sample-size "$BENCHMARK_SAMPLE_SIZE" \
             --warm-up-time "$BENCHMARK_WARM_UP_SECONDS" \
