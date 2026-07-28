@@ -50,6 +50,12 @@ dedicated `retsu_benchmark` schema and applies that commit's migrations. This
 keeps database process and host conditions constant without carrying queue data
 or schema changes between passes.
 
+Standard Linux runners for private repositories provide two CPUs. The workflow
+builds both commits before measurement, pins Retsu and the load generator to CPU
+0, and pins PostgreSQL to CPU 1. It refuses a runner with fewer than two CPUs.
+The reported values therefore describe a normalized one-CPU application and
+one-CPU database comparison, not the absolute capacity of a production host.
+
 Maintenance workers are intentionally outside this suite. Their production
 entrypoints are scheduled polling loops, not bounded requests, so a latency
 number would mostly describe the configured polling interval. They should be
