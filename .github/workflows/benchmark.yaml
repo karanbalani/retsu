@@ -85,7 +85,7 @@ jobs:
       - name: Measure base
         run: |
           git switch --detach "$BASE_SHA"
-          cargo bench --locked --bench message_lifecycle -- \
+          cargo bench --locked --bench queue_operations -- \
             --save-baseline base \
             --sample-size "$BENCHMARK_SAMPLE_SIZE" \
             --warm-up-time "$BENCHMARK_WARM_UP_SECONDS" \
@@ -95,7 +95,7 @@ jobs:
       - name: Measure candidate
         run: |
           git switch --detach "$CANDIDATE_SHA"
-          cargo bench --locked --bench message_lifecycle -- \
+          cargo bench --locked --bench queue_operations -- \
             --baseline base \
             --sample-size "$BENCHMARK_SAMPLE_SIZE" \
             --warm-up-time "$BENCHMARK_WARM_UP_SECONDS" \
@@ -107,7 +107,7 @@ jobs:
       - name: Measure same-code control
         run: |
           git switch --detach "$BASE_SHA"
-          cargo bench --locked --bench message_lifecycle -- \
+          cargo bench --locked --bench queue_operations -- \
             --baseline base \
             --sample-size "$BENCHMARK_SAMPLE_SIZE" \
             --warm-up-time "$BENCHMARK_WARM_UP_SECONDS" \

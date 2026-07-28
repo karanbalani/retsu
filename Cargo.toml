@@ -34,5 +34,5 @@ tempfile = "3.27.0"
 testcontainers-modules = { version = "0.15.0", features = ["postgres"] }
 
 [[bench]]
-name = "message_lifecycle"
+name = "queue_operations"
 harness = false
