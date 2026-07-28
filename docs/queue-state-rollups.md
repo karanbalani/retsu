@@ -273,7 +273,8 @@ The message table remains authoritative. A future repair command can rebuild the
 
 ## Main implementation files
 
-- `migrations/20260727190617_create_queue_priority_state_rollups.sql` creates the table, functions, triggers, backfill, and indexes.
+- `migrations/20260726062530_create_table_queue_message.sql` creates the operational claim, dead-letter, and TTL indexes.
+- `migrations/20260727190617_create_queue_priority_state_rollups.sql` creates the table, functions, triggers, backfill, and metric-collection indexes.
 - `src/modules/queue/infrastructure/state_collector.rs` reads the rollup and performs indexed oldest-message lookups.
 - `src/modules/queue/worker/state_metrics_collector.rs` refreshes the cached snapshot.
 - `src/observability/metrics/queue_state.rs` exposes the snapshot through OpenTelemetry callbacks.
