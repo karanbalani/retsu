@@ -31,7 +31,7 @@ RUN set -eux; \
 FROM scratch AS runtime
 
 LABEL org.opencontainers.image.title="retsu" \
-      org.opencontainers.image.description="An observable, distributed priority queue" \
+      org.opencontainers.image.description="an observable, distributed priority queue" \
       org.opencontainers.image.source="https://github.com/karanbalani/retsu" \
       org.opencontainers.image.licenses="Apache-2.0"
 
