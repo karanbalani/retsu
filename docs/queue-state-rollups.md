@@ -55,11 +55,13 @@ The following metrics do not come from the state snapshot:
 - expiry counters come from the expiry worker;
 - snapshot age and collection health describe the collector itself.
 
-Keeping event metrics at the queue-operation boundary means a future CLI or a change from queue name to queue ID does not need another metrics implementation. HTTP handlers do not own queue business metrics.
+Keeping event metrics at the queue-operation boundary means a future CLI does
+not need another metrics implementation. HTTP handlers do not own queue
+business metrics.
 
-The enqueue and acknowledge command counters use `queue.id`. They intentionally
-omit `queue.name` until queue-name enrichment is provided independently of the
-request database queries. Worker and state metrics continue to use `queue.name`.
+The enqueue and acknowledge command counters use `queue.name`. Queue details
+are resolved through the process-local TTL cache, so a cache hit does not add a
+database query. Worker and state metrics also use `queue.name`.
 
 ## Why one aggregate query is not enough
 

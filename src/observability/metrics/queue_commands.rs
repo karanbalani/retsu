@@ -2,7 +2,6 @@ use opentelemetry::{
     KeyValue,
     metrics::{Counter, Meter},
 };
-use uuid::Uuid;
 
 #[derive(Clone)]
 pub(crate) struct QueueCommandMetrics {
@@ -30,18 +29,18 @@ impl QueueCommandMetrics {
         }
     }
 
-    pub(crate) fn message_enqueued(&self, queue_id: Uuid, priority: &str) {
+    pub(crate) fn message_enqueued(&self, queue_name: &str, priority: &str) {
         self.messages_enqueued.add(
             1,
             &[
-                KeyValue::new("queue.id", queue_id.to_string()),
+                KeyValue::new("queue.name", queue_name.to_owned()),
                 KeyValue::new("message.priority", priority.to_owned()),
             ],
         );
     }
 
-    pub(crate) fn message_acknowledged(&self, queue_id: Uuid) {
+    pub(crate) fn message_acknowledged(&self, queue_name: &str) {
         self.messages_acknowledged
-            .add(1, &[KeyValue::new("queue.id", queue_id.to_string())]);
+            .add(1, &[KeyValue::new("queue.name", queue_name.to_owned())]);
     }
 }

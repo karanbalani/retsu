@@ -4,12 +4,31 @@ use uuid::Uuid;
 
 use super::{
     AcknowledgeMessageCommand, AcknowledgeMessageError, AcknowledgeMessageOutcome,
-    DequeueMessageOutcome, EnqueueMessageOutcome, ExpiredMessagesCleanupSummary, MessageRepository,
-    QueueExpiredMessagesCleanupSummary, QueueTimeoutProcessingSummary, TimeoutProcessingSummary,
+    CreateQueueOutcome, DequeueMessageOutcome, EnqueueMessageOutcome,
+    ExpiredMessagesCleanupSummary, MessageRepository, QueueExpiredMessagesCleanupSummary,
+    QueueRepository, QueueTimeoutProcessingSummary, TimeoutProcessingSummary,
     execute_acknowledge_message, execute_process_expired_messages,
     execute_process_timed_out_messages,
 };
-use crate::modules::queue::domain::Message;
+use crate::modules::queue::domain::{Message, Queue, QueueDetails};
+
+struct FakeQueueRepository;
+
+impl QueueRepository for FakeQueueRepository {
+    async fn create_queue(&self, _queue: &Queue) -> Result<CreateQueueOutcome, anyhow::Error> {
+        unreachable!("lifecycle tests should not create queues")
+    }
+
+    async fn queue_details(&self, queue_id: Uuid) -> Result<Option<QueueDetails>, anyhow::Error> {
+        Ok(Some(QueueDetails::new(
+            queue_id,
+            "email-delivery".to_owned(),
+            30,
+            5,
+            604_800,
+        )))
+    }
+}
 
 struct FakeMessageRepository {
     acknowledge_outcome: AcknowledgeMessageOutcome,
@@ -129,13 +148,16 @@ impl MessageRepository for FakeMessageRepository {
 #[tokio::test]
 async fn preserves_distinct_acknowledgement_failures() {
     async fn result_for(outcome: AcknowledgeMessageOutcome) -> Result<(), AcknowledgeMessageError> {
+        let queues = FakeQueueRepository;
         let repository = FakeMessageRepository::with_acknowledge_outcome(outcome);
 
         execute_acknowledge_message(
+            &queues,
             &repository,
             AcknowledgeMessageCommand::new(Uuid::now_v7(), Uuid::now_v7(), Uuid::new_v4()),
         )
         .await
+        .map(|_| ())
     }
 
     assert!(matches!(

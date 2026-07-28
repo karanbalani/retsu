@@ -59,6 +59,8 @@ logging:
     let environment = environment(&[
         ("RETSU_ENVIRONMENT", "staging"),
         ("RETSU_HTTP__PORT", "3200"),
+        ("RETSU_CACHE__QUEUE_DETAILS__MAX_CAPACITY_BYTES", "33554432"),
+        ("RETSU_CACHE__QUEUE_DETAILS__TTL_SECONDS", "120"),
         ("RETSU_DATABASE__MAX_CONNECTIONS", "20"),
     ]);
 
@@ -67,6 +69,11 @@ logging:
 
     assert_eq!(configuration.environment, Environment::Staging);
     assert_eq!(configuration.http.port, 3200);
+    assert_eq!(
+        configuration.cache.queue_details.max_capacity_bytes,
+        33_554_432
+    );
+    assert_eq!(configuration.cache.queue_details.ttl_seconds, 120);
     assert_eq!(configuration.database.max_connections, 20);
 }
 
@@ -80,6 +87,12 @@ fn fills_omitted_yaml_values_from_struct_defaults() {
     assert_eq!(configuration.environment, Environment::Local);
     assert_eq!(configuration.http.port, 2424);
     assert_eq!(configuration.telemetry.metrics.max_queues, 10_000);
+    assert_eq!(configuration.cache.queue_details.max_entries, 10_000);
+    assert_eq!(
+        configuration.cache.queue_details.max_capacity_bytes,
+        8_388_608
+    );
+    assert_eq!(configuration.cache.queue_details.ttl_seconds, 60);
     assert_eq!(configuration.database.max_connections, 10);
     assert_eq!(configuration.worker.shutdown_timeout_seconds, 30);
 }

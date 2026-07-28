@@ -28,7 +28,10 @@ Keeping process startup separate from queue behavior lets the API and workers sh
 
 Dependency injection here means building shared values once and passing them to the code that needs them. Retsu does not use a dependency injection framework or a global container.
 
-`ApplicationContext::initialize` creates the PostgreSQL connection pool and the queue module. It also gives the queue module the metrics it needs. Cloning the context shares these values; it does not copy every database connection.
+`ApplicationContext::initialize` creates the PostgreSQL connection pool and the
+queue module. It also gives the queue module its cache policy and metrics.
+Cloning the context shares these values; it does not copy every database
+connection or create another cache.
 
 ```mermaid
 flowchart TD
@@ -36,6 +39,7 @@ flowchart TD
     Context --> Pool["PostgreSQL connection pool"]
     Context --> Metrics["Metrics"]
     Context --> Queue["QueueModule"]
+    Queue --> Cache["Queue-details cache"]
     Context --> API["API handlers"]
     Context --> Worker["Selected worker"]
     API --> Queue
@@ -50,9 +54,18 @@ flowchart TD
 
 The API stores a cloned context in Actix's `web::Data`. A handler receives that value and calls `context.queue_module()`. The worker runner also clones the context for each task it starts.
 
-Inside the queue module, a repository trait lists the storage operations that application code may use. Examples are `QueueRepository` and `MessageRepository`. Production code passes `PostgresQueueRepository`. Unit tests can pass small replacements that return controlled results. This keeps database details out of the queue rules and makes those rules quick to test.
+Inside the queue module, a repository trait lists the storage operations that
+application code may use. Examples are `QueueRepository` and
+`MessageRepository`. Queue detail reads use a cached repository that decorates
+`PostgresQueueRepository`; message operations continue to use PostgreSQL
+directly. Unit tests can pass small replacements that return controlled
+results. This keeps database and cache details out of the queue rules and makes
+those rules quick to test.
 
-There is no runtime choice between repository implementations. The queue module creates the PostgreSQL repository directly. The traits form a clear boundary for application code and tests; they are not a plugin system.
+There is no runtime choice between repository implementations. The queue module
+creates the PostgreSQL repository and Moka cache directly. The repository and
+cache traits form clear boundaries for application code, composition, and
+tests; they are not a runtime plugin system.
 
 ## How an application module is arranged
 
@@ -99,8 +112,9 @@ A `POST /v1/queues` request passes through these steps:
 4. `QueueModule` calls the create-queue application operation.
 5. The operation creates a domain `Queue`, which checks its name and settings.
 6. The operation calls the `QueueRepository` boundary.
-7. `PostgresQueueRepository` stores the queue and returns an outcome.
-8. The handler converts the result or error into an HTTP response.
+7. The cached repository asks `PostgresQueueRepository` to store the queue.
+8. A successful database creation populates the local queue-details cache.
+9. The handler converts the result or error into an HTTP response.
 
 Workers enter at step 4 instead of through an HTTP handler. They call an application operation through the same `QueueModule`, so API and worker behavior use the same queue rules and database implementation.
 
@@ -156,5 +170,10 @@ For a new queue operation:
 4. Add a `QueueModule` method.
 5. Connect it to an API handler, a worker, or both.
 6. Test rules with a fake repository and protect cross-process behavior in the integration suite.
+
+For another cached value family, define its typed key and value near the owning
+module, add a validated cache policy, and compose the generic cache boundary at
+the infrastructure layer. See [Caching](caching.md) for TTL, fallback, and
+distributed-backend behavior.
 
 For a new application module, follow the queue module's directory shape only for the parts the feature needs. Expose one module definition, add it to `MODULE_CATALOG`, and add its shared dependency to `ApplicationContext` if the API or a worker needs to call it.

@@ -6,6 +6,7 @@ use std::sync::{
 use super::{
     CreateQueueCommand, CreateQueueError, CreateQueueOutcome, Queue, QueueRepository, execute,
 };
+use crate::modules::queue::domain::QueueDetails;
 
 struct FakeQueueRepository {
     outcome: CreateQueueOutcome,
@@ -39,6 +40,13 @@ impl QueueRepository for FakeQueueRepository {
             CreateQueueOutcome::Created => CreateQueueOutcome::Created,
             CreateQueueOutcome::AlreadyExists => CreateQueueOutcome::AlreadyExists,
         })
+    }
+
+    async fn queue_details(
+        &self,
+        _queue_id: uuid::Uuid,
+    ) -> Result<Option<QueueDetails>, anyhow::Error> {
+        unreachable!("create queue tests should not read queue details")
     }
 }
 
