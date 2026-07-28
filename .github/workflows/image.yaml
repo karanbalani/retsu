@@ -1,30 +1,9 @@
 name: Container Image
 
 on:
-  pull_request:
-    paths:
-      - .dockerignore
-      - .github/workflows/image.yaml
-      - Cargo.lock
-      - Cargo.toml
-      - Dockerfile
-      - build.rs
-      - migrations/**
-      - rust-toolchain.toml
-      - src/**
   push:
-    branches:
-      - main
-    paths:
-      - .dockerignore
-      - .github/workflows/image.yaml
-      - Cargo.lock
-      - Cargo.toml
-      - Dockerfile
-      - build.rs
-      - migrations/**
-      - rust-toolchain.toml
-      - src/**
+    tags:
+      - "v*"
 
 permissions:
   contents: read
@@ -37,32 +16,8 @@ env:
   IMAGE_NAME: ghcr.io/${{ github.repository }}
 
 jobs:
-  validate:
-    name: Build container image
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v6
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          platforms: linux/amd64
-          push: false
-          tags: ${{ env.IMAGE_NAME }}:pr-${{ github.event.pull_request.number }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
   publish:
     name: Publish container image
-    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
@@ -72,6 +27,35 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Validate calendar version tag
+        id: version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          pattern='^v([1-9][0-9]{3})\.([1-9]|1[0-2])\.(0|[1-9][0-9]*)$'
+
+          if [[ ! "${RELEASE_TAG}" =~ ${pattern} ]]; then
+            echo "Tag must match vYEAR.MONTH.RELEASE, for example v2026.7.0."
+            exit 1
+          fi
+
+          echo "version=${RELEASE_TAG#v}" >> "${GITHUB_OUTPUT}"
+
+      - name: Verify tagged commit is on main
+        id: commit
+        run: |
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          tagged_commit="$(git rev-parse "${GITHUB_REF}^{commit}")"
+
+          if ! git merge-base --is-ancestor "${tagged_commit}" refs/remotes/origin/main; then
+            echo "Tagged commit must be contained in origin/main."
+            exit 1
+          fi
+
+          echo "sha=${tagged_commit}" >> "${GITHUB_OUTPUT}"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -92,7 +76,9 @@ jobs:
         with:
           images: ${{ env.IMAGE_NAME }}
           flavor: latest=false
-          tags: type=sha,format=long,prefix=sha-
+          tags: |
+            type=raw,value=${{ steps.version.outputs.version }}
+            type=raw,value=sha-${{ steps.commit.outputs.sha }}
 
       - name: Build and publish image
         uses: docker/build-push-action@v6
