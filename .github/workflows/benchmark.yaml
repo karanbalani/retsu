@@ -68,12 +68,14 @@ jobs:
         run: |
           if [[ "$MODE" == "thorough" ]]; then
             echo "BENCHMARK_SAMPLE_SIZE=200" >> "$GITHUB_ENV"
-            echo "BENCHMARK_WARM_UP_SECONDS=5" >> "$GITHUB_ENV"
-            echo "BENCHMARK_MEASUREMENT_SECONDS=15" >> "$GITHUB_ENV"
+            echo "BENCHMARK_WARM_UP_SECONDS=10" >> "$GITHUB_ENV"
+            echo "BENCHMARK_MEASUREMENT_SECONDS=30" >> "$GITHUB_ENV"
+            echo "BENCHMARK_NOISE_THRESHOLD=0.05" >> "$GITHUB_ENV"
           else
             echo "BENCHMARK_SAMPLE_SIZE=100" >> "$GITHUB_ENV"
-            echo "BENCHMARK_WARM_UP_SECONDS=3" >> "$GITHUB_ENV"
-            echo "BENCHMARK_MEASUREMENT_SECONDS=5" >> "$GITHUB_ENV"
+            echo "BENCHMARK_WARM_UP_SECONDS=5" >> "$GITHUB_ENV"
+            echo "BENCHMARK_MEASUREMENT_SECONDS=10" >> "$GITHUB_ENV"
+            echo "BENCHMARK_NOISE_THRESHOLD=0.10" >> "$GITHUB_ENV"
           fi
 
       - name: Resolve comparison commits
@@ -195,6 +197,7 @@ jobs:
             --base "$BASE_SHA" \
             --candidate "$CANDIDATE_SHA" \
             --mode "$MODE" \
+            --noise-threshold "$BENCHMARK_NOISE_THRESHOLD" \
             >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload detailed Criterion results
