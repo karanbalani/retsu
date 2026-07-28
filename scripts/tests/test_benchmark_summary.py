@@ -63,6 +63,11 @@ class BenchmarkSummaryTest(unittest.TestCase):
                 "Outcomes: 1 improved · 0 regressed · 0 inconclusive · 0 unstable",
                 summary,
             )
+            self.assertIn(
+                "This run established repeatable evidence that 1 workload improved, "
+                "beyond the ±1% practical noise band.",
+                summary,
+            )
 
     def test_treats_a_small_change_as_inconclusive(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -129,6 +134,15 @@ class BenchmarkSummaryTest(unittest.TestCase):
         )
 
         self.assertIn("🟠 Unstable", summary)
+        self.assertIn(
+            "This run did not establish a repeatable improvement or regression "
+            "beyond the ±1% practical noise band.",
+            summary,
+        )
+        self.assertIn(
+            "Unstable means unchanged base code also moved materially",
+            summary,
+        )
 
     def test_marks_a_result_unstable_when_control_uncertainty_exceeds_noise(self) -> None:
         candidate = self.result(
@@ -180,6 +194,36 @@ class BenchmarkSummaryTest(unittest.TestCase):
 
         self.assertIn("2.50 ms (1,600 ops/s)", summary)
         self.assertIn("2.00 ms (2,000 ops/s)", summary)
+
+    def test_explains_the_report_to_a_non_expert_reader(self) -> None:
+        candidate = self.result(
+            name="queue_operations/enqueue/1_kib",
+            change=0.0,
+            lower_bound=-0.05,
+            upper_bound=0.05,
+        )
+        control = self.result(
+            name="queue_operations/enqueue/1_kib",
+            change=0.0,
+            lower_bound=-0.05,
+            upper_bound=0.05,
+        )
+
+        summary = render_markdown(
+            [BenchmarkPair("Pair 1", [candidate], [control])],
+            "abc123",
+            "def456",
+            "standard",
+            0.10,
+        )
+
+        self.assertIn("What this run is trying to establish", summary)
+        self.assertIn("optimized release binaries", summary)
+        self.assertIn("not an absolute production-capacity test", summary)
+        self.assertIn("base → candidate → base control", summary)
+        self.assertIn("Lower duration is better", summary)
+        self.assertIn("Verdict guide", summary)
+        self.assertIn("Optimized release binaries: `yes`", summary)
 
     def test_requires_stable_pairs_to_agree(self) -> None:
         improved = self.result(

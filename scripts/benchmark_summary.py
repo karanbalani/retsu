@@ -151,8 +151,36 @@ def format_pair_cell(
     return (
         f"{base} → {candidate}<br>"
         f"{format_change(result)}<br>"
-        f"control {format_change(control)}<br>"
+        f"same-code control {format_change(control)}<br>"
         f"{result_verdict}"
+    )
+
+
+def format_count(count: int, noun: str) -> str:
+    suffix = "" if count == 1 else "s"
+    return f"{count} {noun}{suffix}"
+
+
+def render_conclusion(outcome_counts: dict[str, int], noise_threshold: float) -> str:
+    improved = outcome_counts["🟢 Improved"]
+    regressed = outcome_counts["🔴 Regressed"]
+
+    findings = []
+    if improved:
+        findings.append(f"{format_count(improved, 'workload')} improved")
+    if regressed:
+        findings.append(f"{format_count(regressed, 'workload')} regressed")
+
+    if not findings:
+        return (
+            "**This run did not establish a repeatable improvement or regression "
+            f"beyond the ±{noise_threshold:.0%} practical noise band.**"
+        )
+
+    return (
+        "**This run established repeatable evidence that "
+        + " and ".join(findings)
+        + f", beyond the ±{noise_threshold:.0%} practical noise band.**"
     )
 
 
@@ -205,19 +233,55 @@ def render_markdown(
     }
 
     lines = [
-        "## Benchmark comparison",
+        "## Performance benchmark",
         "",
-        f"- Base: `{base}`",
-        f"- Candidate: `{candidate}`",
-        f"- Mode: `{mode}`",
-        f"- Practical noise threshold: `{noise_threshold:.0%}`",
-        f"- Comparison pairs: `{len(pairs)}`",
+        "### What this run is trying to establish",
+        "",
+        (
+            "This report asks whether the candidate commit makes the tested queue "
+            "operations consistently faster or slower than the point where its branch "
+            "diverged from `main`."
+        ),
+        "",
+        (
+            "Both commits run the same workloads as optimized release binaries against "
+            "the same PostgreSQL service on one GitHub-hosted runner. This is a relative "
+            "comparison between two commits, not an absolute production-capacity test."
+        ),
+        "",
+        "### Result at a glance",
+        "",
+        render_conclusion(outcome_counts, noise_threshold),
+        "",
         (
             f"- Outcomes: {outcome_counts['🟢 Improved']} improved · "
             f"{outcome_counts['🔴 Regressed']} regressed · "
             f"{outcome_counts['⚪ Inconclusive']} inconclusive · "
             f"{outcome_counts['🟠 Unstable']} unstable"
         ),
+        (
+            f"- Inconclusive means the runner was stable, but the change could not be "
+            f"distinguished from the ±{noise_threshold:.0%} noise band in both pairs."
+        ),
+        (
+            "- Unstable means unchanged base code also moved materially, so runner drift "
+            "prevents attributing the result to the candidate."
+        ),
+        "",
+        "### How the comparison works",
+        "",
+        (
+            f"Two independent rounds each run **base → candidate → base control**. "
+            f"The repeated base is the same code as the first base and detects changes "
+            f"in runner conditions. A workload is called improved or regressed only "
+            f"when both controls are stable and both candidate comparisons agree."
+        ),
+        "",
+        "Lower duration is better. Concurrent workloads also show operations per second, "
+        "where higher is better. The percentage in parentheses is Criterion's confidence "
+        "interval for the measured change.",
+        "",
+        "### Workload results",
         "",
     ]
 
@@ -237,13 +301,39 @@ def render_markdown(
     lines.extend(
         [
             "",
-            "> Each pair repeats the base after the candidate as a same-code control. "
-            "Any material control drift marks the combined result as unstable.",
+            "### Verdict guide",
             "",
-            "> Improvement or regression requires every stable pair to agree. "
-            "All other stable combinations are inconclusive.",
+            "| Verdict | What it means |",
+            "| --- | --- |",
+            (
+                "| 🟢 Improved | Both measurement pairs show a speed-up beyond the "
+                "noise band, with stable same-code controls. |"
+            ),
+            (
+                "| 🔴 Regressed | Both measurement pairs show a slow-down beyond the "
+                "noise band, with stable same-code controls. |"
+            ),
+            (
+                "| ⚪ Inconclusive | Runner conditions were stable, but the change was "
+                "inside the noise band or the two pairs did not agree. |"
+            ),
+            (
+                "| 🟠 Unstable | Unchanged base code drifted beyond the noise band, so "
+                "no performance claim is made. |"
+            ),
             "",
-            "> Informational only. Rerun small or inconclusive changes before drawing a conclusion.",
+            "### Run details",
+            "",
+            f"- Base commit: `{base}`",
+            f"- Candidate commit: `{candidate}`",
+            f"- Measurement mode: `{mode}`",
+            f"- Practical noise band: `±{noise_threshold:.0%}`",
+            f"- Comparison pairs: `{len(pairs)}`",
+            "- Optimized release binaries: `yes`",
+            "",
+            "> Informational only: the benchmark reports evidence but does not fail the "
+            "workflow on a regression. Rerun borderline or unstable results before "
+            "making a release decision.",
         ]
     )
 
