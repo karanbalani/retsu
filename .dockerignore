@@ -1,0 +1,14 @@
+.git
+.github
+.agents
+.env
+.env.*
+target
+docs
+infra
+tests
+.DS_Store
+compose.yaml
+justfile
+LICENSE
+README.md
