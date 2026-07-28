@@ -3,7 +3,8 @@
   <desc id="description">
     Shared runtime components run horizontally across the program. The queue
     module is a vertical feature component containing its API handlers, workers,
-    application operations, domain rules, and PostgreSQL implementation.
+    application operations, domain rules, local queue-name cache, shared
+    queue-details cache, and PostgreSQL repository.
   </desc>
 
   <defs>
@@ -127,8 +128,8 @@
   <text class="box-path" x="446" y="439" text-anchor="middle">src/app/mod.rs</text>
 
   <rect class="box" x="578" y="373" width="224" height="78" rx="12"/>
-  <text class="box-title" x="690" y="403" text-anchor="middle">Database setup</text>
-  <text class="box-path" x="690" y="428" text-anchor="middle">src/database/</text>
+  <text class="box-title" x="690" y="403" text-anchor="middle">Database + caches</text>
+  <text class="box-path" x="690" y="428" text-anchor="middle">src/database/ · src/cache/</text>
 
   <rect class="box" x="822" y="373" width="224" height="78" rx="12"/>
   <text class="box-title" x="934" y="403" text-anchor="middle">HTTP + worker runtime</text>
@@ -142,7 +143,7 @@
   <rect x="350" y="510" width="700" height="84" rx="14" fill="#fff7ed" stroke="#ea580c" stroke-width="2"/>
   <text class="bridge-title" x="700" y="542" text-anchor="middle">THE CONNECTION BETWEEN BOTH SHAPES</text>
   <text class="bridge-note" x="700" y="570" text-anchor="middle">
-    src/modules/ lists routes and workers · ApplicationContext provides QueueModule
+    ApplicationContext provides QueueModule · QueueModule connects PostgreSQL and both caches
   </text>
   <path class="connection-arrow" d="M 700 480 V 510"/>
   <path class="connection-arrow" d="M 700 594 V 708"/>
@@ -173,13 +174,14 @@
   <text class="box-title" x="500" y="987" text-anchor="middle">Domain rules</text>
   <text class="box-path" x="500" y="1011" text-anchor="middle">queue/domain/</text>
 
-  <rect class="box" x="765" y="958" width="270" height="72" rx="12"/>
-  <text class="box-title" x="900" y="987" text-anchor="middle">PostgreSQL repository</text>
-  <text class="box-path" x="900" y="1011" text-anchor="middle">queue/infrastructure/</text>
+  <rect class="box" x="765" y="950" width="270" height="88" rx="12"/>
+  <text class="box-title" x="900" y="978" text-anchor="middle">Queue repositories</text>
+  <text class="box-note" x="900" y="1000" text-anchor="middle">local names · shared details · PostgreSQL</text>
+  <text class="box-path" x="900" y="1022" text-anchor="middle">queue/infrastructure/</text>
 
   <path class="feature-arrow" d="M 505 769 H 590"/>
   <path class="feature-arrow" d="M 895 769 H 810"/>
   <path class="feature-arrow" d="M 700 810 V 848"/>
   <path class="feature-arrow" d="M 660 930 C 660 946 560 946 540 958"/>
-  <path class="feature-arrow" d="M 740 930 C 740 946 840 946 860 958"/>
+  <path class="feature-arrow" d="M 740 930 C 740 942 840 942 860 950"/>
 </svg>

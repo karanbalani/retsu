@@ -55,7 +55,7 @@ The following metrics do not come from the state snapshot:
 - expiry counters come from the expiry worker;
 - snapshot age and collection health describe the collector itself.
 
-Keeping event metrics at the queue-operation boundary means a future CLI does not need another metrics implementation. HTTP handlers do not own queue business metrics.
+Keeping event metrics at the queue-operation boundary ensures that every caller uses the same measurements. HTTP handlers do not own queue business metrics.
 
 The enqueue and acknowledge command counters use `queue.name`. Enqueueing gets the name together with the default TTL through the distributed queue-details cache. Acknowledgement resolves the immutable name through the process-local, capacity-bounded cache. Worker and state metrics also use `queue.name`.
 
@@ -148,7 +148,7 @@ affected shard instead of one counter update per message.
 The database owns these updates because:
 
 - the message and count commit or roll back together;
-- HTTP, a future CLI, maintenance tools, and older application instances are all covered;
+- HTTP requests, maintenance tools, and older application instances are all covered;
 - an application crash cannot commit the message but miss its counter;
 - queue names versus queue IDs do not affect the mechanism.
 
@@ -264,7 +264,7 @@ expired rows waiting for the cleaner, so both backlogs should be monitored.
 
 ### The rollup needs repair
 
-The message table remains authoritative. A future repair command can rebuild the rollup using the same grouping as the migration backfill.
+The message table remains authoritative. The rollup can be rebuilt using the same grouping as the migration backfill.
 
 ## Main implementation files
 
