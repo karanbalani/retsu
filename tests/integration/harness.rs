@@ -1,4 +1,5 @@
 use std::{
+    env,
     fs::{File, read_to_string},
     future::Future,
     net::TcpListener,
@@ -25,7 +26,7 @@ const POSTGRES_PORT: u16 = 5432;
 pub struct IntegrationSystem {
     processes: Vec<ManagedProcess>,
     database_pool: PgPool,
-    _postgres: ContainerAsync<Postgres>,
+    _postgres: Option<ContainerAsync<Postgres>>,
     log_directory: TempDir,
     database_url: String,
     api_base_url: String,
@@ -66,21 +67,29 @@ impl IntegrationSystem {
         let log_directory =
             tempfile::tempdir().context("failed to create integration-test log directory")?;
 
-        let postgres = Postgres::default()
-            .with_tag("18.4-alpine")
-            .start()
-            .await
-            .context("failed to start PostgreSQL through Testcontainers")?;
+        let (database_url, postgres) =
+            if let Ok(database_url) = env::var("RETSU_BENCHMARK_DATABASE_URL") {
+                reset_external_benchmark_database(&database_url).await?;
+                (database_url, None)
+            } else {
+                let postgres = Postgres::default()
+                    .with_tag("18.4-alpine")
+                    .start()
+                    .await
+                    .context("failed to start PostgreSQL through Testcontainers")?;
 
-        let host = postgres
-            .get_host()
-            .await
-            .context("failed to resolve the PostgreSQL container host")?;
-        let port = postgres
-            .get_host_port_ipv4(POSTGRES_PORT)
-            .await
-            .context("failed to resolve the PostgreSQL container port")?;
-        let database_url = format!("postgres://postgres:postgres@{host}:{port}/postgres");
+                let host = postgres
+                    .get_host()
+                    .await
+                    .context("failed to resolve the PostgreSQL container host")?;
+                let port = postgres
+                    .get_host_port_ipv4(POSTGRES_PORT)
+                    .await
+                    .context("failed to resolve the PostgreSQL container port")?;
+                let database_url = format!("postgres://postgres:postgres@{host}:{port}/postgres");
+
+                (database_url, Some(postgres))
+            };
 
         run_migrations(&database_url)?;
 
@@ -302,6 +311,96 @@ impl IntegrationSystem {
             .context("failed to inspect active message persistence")
     }
 
+    #[allow(dead_code)]
+    pub async fn delete_message_directly(&self, message_id: Uuid) -> anyhow::Result<()> {
+        let result = sqlx::query("DELETE FROM queue_message WHERE id = $1")
+            .bind(message_id)
+            .execute(&self.database_pool)
+            .await
+            .context("failed to delete benchmark message")?;
+
+        ensure!(
+            result.rows_affected() == 1,
+            "expected to delete one benchmark message, deleted {}",
+            result.rows_affected()
+        );
+
+        Ok(())
+    }
+
+    #[allow(dead_code)]
+    pub async fn restore_message_directly(&self, message_id: Uuid) -> anyhow::Result<()> {
+        let result = sqlx::query(
+            r#"
+            UPDATE queue_message
+            SET
+                state = 'READY',
+                delivery_attempts = 0,
+                receipt_handle = NULL,
+                visibility_deadline = NULL,
+                last_delivered_at = NULL
+            WHERE id = $1
+            "#,
+        )
+        .bind(message_id)
+        .execute(&self.database_pool)
+        .await
+        .context("failed to restore benchmark message")?;
+
+        ensure!(
+            result.rows_affected() == 1,
+            "expected to restore one benchmark message, restored {}",
+            result.rows_affected()
+        );
+
+        Ok(())
+    }
+
+    #[allow(dead_code)]
+    pub async fn reset_dequeue_fixture_directly(
+        &self,
+        queue_id: Uuid,
+        message_count: u32,
+        payload_size_bytes: u32,
+    ) -> anyhow::Result<()> {
+        sqlx::query("TRUNCATE TABLE queue_message, queue_priority_state_shard RESTART IDENTITY")
+            .execute(&self.database_pool)
+            .await
+            .context("failed to clear the benchmark dequeue fixture")?;
+
+        self.seed_ready_messages_directly(queue_id, message_count, payload_size_bytes)
+            .await
+    }
+
+    #[allow(dead_code)]
+    pub async fn seed_ready_messages_directly(
+        &self,
+        queue_id: Uuid,
+        message_count: u32,
+        payload_size_bytes: u32,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            r#"
+            INSERT INTO queue_message (id, queue_id, payload, priority, expires_at)
+            SELECT
+                gen_random_uuid(),
+                $1,
+                repeat('x', $2)::BYTEA,
+                2,
+                CURRENT_TIMESTAMP + INTERVAL '1 day'
+            FROM generate_series(1, $3)
+            "#,
+        )
+        .bind(queue_id)
+        .bind(i32::try_from(payload_size_bytes).context("payload size exceeded i32")?)
+        .bind(i32::try_from(message_count).context("message count exceeded i32")?)
+        .execute(&self.database_pool)
+        .await
+        .context("failed to seed benchmark messages")?;
+
+        Ok(())
+    }
+
     pub async fn dead_letter_reason(&self, message_id: Uuid) -> anyhow::Result<Option<String>> {
         sqlx::query_scalar("SELECT reason FROM queue_dead_letter_message WHERE id = $1")
             .bind(message_id)
@@ -309,6 +408,35 @@ impl IntegrationSystem {
             .await
             .context("failed to inspect dead-letter persistence")
     }
+}
+
+async fn reset_external_benchmark_database(database_url: &str) -> anyhow::Result<()> {
+    let pool = PgPoolOptions::new()
+        .max_connections(1)
+        .connect(database_url)
+        .await
+        .context("failed to connect to the external benchmark database")?;
+    let database_name: String = sqlx::query_scalar("SELECT current_database()")
+        .fetch_one(&pool)
+        .await
+        .context("failed to inspect the external benchmark database name")?;
+
+    ensure!(
+        database_name == "retsu_benchmark",
+        "refusing to reset external database `{database_name}`; expected `retsu_benchmark`"
+    );
+
+    sqlx::query("DROP SCHEMA public CASCADE")
+        .execute(&pool)
+        .await
+        .context("failed to drop the external benchmark schema")?;
+    sqlx::query("CREATE SCHEMA public")
+        .execute(&pool)
+        .await
+        .context("failed to recreate the external benchmark schema")?;
+    pool.close().await;
+
+    Ok(())
 }
 
 pub fn unique_queue_name(prefix: &str) -> String {
@@ -403,6 +531,7 @@ fn base_command(database_url: &str) -> Command {
     command
         .arg("--config")
         .arg(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("config/retsu.yaml"))
+        .env_remove("RETSU_BENCHMARK_DATABASE_URL")
         .env("RETSU_ENVIRONMENT", "test")
         .env("RETSU_DATABASE__URL", database_url)
         .env("RETSU_LOGGING__FILTER", "info")
