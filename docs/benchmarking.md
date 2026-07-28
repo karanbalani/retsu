@@ -44,6 +44,12 @@ The depth fixtures are inserted directly into PostgreSQL before measurement.
 This makes the dequeue result describe the production dequeue path at a known
 queue depth instead of timing thousands of setup requests.
 
+GitHub Actions keeps one pinned PostgreSQL service alive for every measurement
+pair. Before each base, candidate, or control pass, the harness resets the
+dedicated `retsu_benchmark` schema and applies that commit's migrations. This
+keeps database process and host conditions constant without carrying queue data
+or schema changes between passes.
+
 Maintenance workers are intentionally outside this suite. Their production
 entrypoints are scheduled polling loops, not bounded requests, so a latency
 number would mostly describe the configured polling interval. They should be
