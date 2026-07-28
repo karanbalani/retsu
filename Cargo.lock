@@ -2610,6 +2610,7 @@ dependencies = [
  "clap",
  "config",
  "criterion",
+ "futures-util",
  "moka",
  "opentelemetry",
  "opentelemetry-otlp",

@@ -1,6 +1,10 @@
-use std::time::{Duration, Instant};
+use std::{
+    collections::HashSet,
+    time::{Duration, Instant},
+};
 
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
+use futures_util::future::join_all;
 
 #[allow(dead_code)]
 #[path = "../tests/integration/harness.rs"]
@@ -246,27 +250,40 @@ async fn execute_concurrent_lifecycles(
     payload: &str,
     concurrency: u8,
 ) {
-    match concurrency {
-        4 => {
-            execute_four_lifecycles(system, queue_id, payload).await;
-        }
-        8 => {
-            tokio::join!(
-                execute_four_lifecycles(system, queue_id, payload),
-                execute_four_lifecycles(system, queue_id, payload),
-            );
-        }
-        _ => unreachable!("concurrency must be one of the benchmarked levels"),
-    }
-}
+    assert!(concurrency > 0);
 
-async fn execute_four_lifecycles(system: &IntegrationSystem, queue_id: uuid::Uuid, payload: &str) {
-    tokio::join!(
-        execute_worker_lifecycle(system, queue_id, payload),
-        execute_worker_lifecycle(system, queue_id, payload),
-        execute_worker_lifecycle(system, queue_id, payload),
-        execute_worker_lifecycle(system, queue_id, payload),
-    );
+    let enqueued_message_ids = join_all(
+        (0..concurrency).map(|_| system.enqueue_message(queue_id, payload, "MEDIUM", None)),
+    )
+    .await
+    .into_iter()
+    .map(|result| result.expect("concurrent benchmark message should be enqueued"))
+    .collect::<HashSet<_>>();
+
+    let dequeued_messages = join_all((0..concurrency).map(|_| system.dequeue_message(queue_id)))
+        .await
+        .into_iter()
+        .map(|result| {
+            result
+                .expect("concurrent benchmark message should be dequeued")
+                .expect("concurrent benchmark queue should contain every enqueued message")
+        })
+        .collect::<Vec<_>>();
+    let dequeued_message_ids = dequeued_messages
+        .iter()
+        .map(|message| message.id)
+        .collect::<HashSet<_>>();
+
+    assert_eq!(dequeued_message_ids, enqueued_message_ids);
+
+    join_all(
+        dequeued_messages.into_iter().map(|message| {
+            system.acknowledge_message(queue_id, message.id, message.receipt_handle)
+        }),
+    )
+    .await
+    .into_iter()
+    .for_each(|result| result.expect("concurrent benchmark message should be acknowledged"));
 }
 
 fn format_depth(depth: u32) -> String {
