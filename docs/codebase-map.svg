@@ -57,7 +57,7 @@
       }
       .bridge-note {
         fill: #7c2d12;
-        font: 500 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font: 500 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       }
       .box {
         fill: #ffffff;
