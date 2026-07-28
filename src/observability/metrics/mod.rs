@@ -5,7 +5,6 @@ mod http;
 mod queue;
 mod queue_commands;
 mod queue_state;
-mod visibility_timeout;
 
 use opentelemetry::metrics::MeterProvider;
 use opentelemetry_sdk::{
@@ -22,7 +21,6 @@ pub(crate) use http::HttpMetrics;
 pub(crate) use queue::QueueInstrumentation;
 pub(crate) use queue_commands::QueueCommandMetrics;
 pub(crate) use queue_state::{QueuePriorityStateMetric, QueueStateMetrics};
-pub(crate) use visibility_timeout::VisibilityTimeoutMetrics;
 
 #[derive(Clone)]
 pub(crate) struct Metrics {
@@ -86,9 +84,7 @@ pub(super) fn initialize(
 
                 "queue.messages.expired" => 2,
 
-                "queue.messages.acknowledged"
-                | "queue.messages.requeued"
-                | "queue.messages.dead_lettered" => 1,
+                "queue.messages.acknowledged" | "queue.messages.dead_lettered" => 1,
 
                 _ => return None,
             };

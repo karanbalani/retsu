@@ -82,7 +82,6 @@ Queue-and-delivery-history instrument:
 Queue-only instruments:
 
 - `queue.messages.acknowledged`
-- `queue.messages.requeued`
 - `queue.messages.dead_lettered`
 
 These instruments use `queue.name`.

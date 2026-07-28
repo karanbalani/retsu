@@ -16,83 +16,19 @@ pub(in crate::modules::queue) enum DequeueMessageOutcome {
         priority: MessagePriority,
         receipt_handle: Uuid,
         delivery_attempts: u16,
+        queue_name: String,
+        dead_lettered: u64,
     },
-    Empty,
+    Empty {
+        queue_name: String,
+        dead_lettered: u64,
+    },
     QueueNotFound,
 }
 
 pub(in crate::modules::queue) enum AcknowledgeMessageOutcome {
     Acknowledged,
     Unchanged,
-}
-
-#[derive(Debug)]
-pub(in crate::modules::queue) struct QueueTimeoutProcessingSummary {
-    queue_name: String,
-    requeued: u64,
-    dead_lettered: u64,
-}
-
-impl QueueTimeoutProcessingSummary {
-    pub fn new(queue_name: String, requeued: u64, dead_lettered: u64) -> Self {
-        Self {
-            queue_name,
-            requeued,
-            dead_lettered,
-        }
-    }
-
-    pub(in crate::modules::queue) fn queue_name(&self) -> &str {
-        &self.queue_name
-    }
-
-    pub(in crate::modules::queue) fn requeued(&self) -> u64 {
-        self.requeued
-    }
-
-    pub(in crate::modules::queue) fn dead_lettered(&self) -> u64 {
-        self.dead_lettered
-    }
-
-    pub(in crate::modules::queue) fn processed(&self) -> u64 {
-        self.requeued + self.dead_lettered
-    }
-}
-
-#[derive(Debug)]
-pub(in crate::modules::queue) struct TimeoutProcessingSummary {
-    per_queue: Vec<QueueTimeoutProcessingSummary>,
-}
-
-impl TimeoutProcessingSummary {
-    pub(in crate::modules::queue) fn new(per_queue: Vec<QueueTimeoutProcessingSummary>) -> Self {
-        Self { per_queue }
-    }
-
-    pub(in crate::modules::queue) fn per_queue(&self) -> &[QueueTimeoutProcessingSummary] {
-        &self.per_queue
-    }
-
-    pub(in crate::modules::queue) fn processed(&self) -> u64 {
-        self.per_queue
-            .iter()
-            .map(QueueTimeoutProcessingSummary::processed)
-            .sum()
-    }
-
-    pub(in crate::modules::queue) fn requeued(&self) -> u64 {
-        self.per_queue
-            .iter()
-            .map(QueueTimeoutProcessingSummary::requeued)
-            .sum()
-    }
-
-    pub(in crate::modules::queue) fn dead_lettered(&self) -> u64 {
-        self.per_queue
-            .iter()
-            .map(QueueTimeoutProcessingSummary::dead_lettered)
-            .sum()
-    }
 }
 
 #[derive(Debug)]
@@ -198,11 +134,6 @@ pub(in crate::modules::queue) trait QueueRepository {
         message_id: Uuid,
         receipt_handle: Uuid,
     ) -> Result<AcknowledgeMessageOutcome, anyhow::Error>;
-
-    async fn process_timed_out_messages(
-        &self,
-        batch_size: u32,
-    ) -> Result<TimeoutProcessingSummary, anyhow::Error>;
 
     async fn process_expired_messages(
         &self,

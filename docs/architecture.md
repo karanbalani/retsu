@@ -12,16 +12,13 @@ flowchart LR
     API --> Memory["In-memory queue names"]
     Memory --> Distributed["Distributed queue details"]
     Distributed --> Database[("PostgreSQL")]
-    Timeout["Worker process<br/>visibility-timeout-processor<br/>+ queue module"] --> Database
     Cleaner["Worker process<br/>expired-message-cleaner<br/>+ queue module"] --> Database
     State["Worker process<br/>state-metrics-collector<br/>+ queue module"] --> Database
     API --> Database
     Prometheus["Prometheus"] -. "reads metrics" .-> API
-    Prometheus -. "reads metrics" .-> Timeout
     Prometheus -. "reads metrics" .-> Cleaner
     Prometheus -. "reads metrics" .-> State
     API -. "sends traces when enabled" .-> Collector["Trace collector"]
-    Timeout -. "sends traces when enabled" .-> Collector
     Cleaner -. "sends traces when enabled" .-> Collector
     State -. "sends traces when enabled" .-> Collector
 ```
@@ -32,7 +29,14 @@ and workers. PostgreSQL remains authoritative. Queue names are cached in each
 process; complete queue details are cached in the distributed Redis-protocol
 store.
 
-The API receives health and queue requests. A worker process runs one selected background job. The visibility timeout worker handles returned messages whose timeout has ended. The expired message cleaner removes messages whose lifetime has ended. State metrics collector replicas compete for a PostgreSQL leadership lock. One active collector refreshes queue counts and message ages every 15 seconds while the others wait to take over. Each worker process also serves its own health and metrics endpoints.
+The API receives health and queue requests. A dequeue request can directly
+claim a returned message whose visibility timeout has ended and moves exhausted
+messages to dead-letter storage as bounded maintenance. A worker process runs
+one selected background job. The expired message cleaner removes messages whose
+lifetime has ended. State metrics collector replicas compete for a PostgreSQL
+leadership lock. One active collector refreshes queue counts and message ages
+every 15 seconds while the others wait to take over. Each worker process also
+serves its own health and metrics endpoints.
 
 Prometheus reads measurements from the API and workers. When trace export is enabled, they send activity details to the trace collector.
 
@@ -45,7 +49,6 @@ Starting one queue worker does not start the API or any other worker.
 | `just api` | Starts the HTTP API |
 | `just worker-modules` | Lists modules that provide workers |
 | `just worker-list queue` | Lists workers provided by the queue module |
-| `just worker queue visibility-timeout-processor` | Starts the queue timeout worker |
 | `just worker queue expired-message-cleaner` | Starts the expired message cleaner |
 | `just worker queue state-metrics-collector` | Starts the queue state metrics collector |
 | `just migrate` | Applies pending database changes |
@@ -69,7 +72,11 @@ flowchart TD
     Limit -->|"Yes"| Stored["Removed from the active queue<br/>and stored separately"]
 ```
 
-Returning a message creates a receipt handle and increases its delivery attempt count. Completing it with the current receipt handle removes it. If its visibility timeout ends first, the queue worker either makes it available again or stores it separately when the attempt limit has been reached.
+Returning a message creates a receipt handle, advances its `available_after`
+timestamp, and increases its delivery attempt count. Completing it with the
+current unexpired receipt handle removes it. If its visibility timeout ends
+first, a later dequeue can claim it directly or store it separately when the
+attempt limit has been reached.
 
 The expired message cleaner removes an expired waiting message. If a returned message expires, the cleaner waits for its visibility timeout to end before removing it.
 

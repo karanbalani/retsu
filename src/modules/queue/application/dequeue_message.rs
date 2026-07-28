@@ -27,6 +27,26 @@ pub(in crate::modules::queue) struct DequeuedMessage {
     delivery_attempts: u16,
 }
 
+pub(in crate::modules::queue) struct DequeueMessageResult {
+    message: Option<DequeuedMessage>,
+    queue_name: String,
+    dead_lettered: u64,
+}
+
+impl DequeueMessageResult {
+    pub(in crate::modules::queue) fn message(self) -> Option<DequeuedMessage> {
+        self.message
+    }
+
+    pub(in crate::modules::queue) fn queue_name(&self) -> &str {
+        &self.queue_name
+    }
+
+    pub(in crate::modules::queue) fn dead_lettered(&self) -> u64 {
+        self.dead_lettered
+    }
+}
+
 impl DequeuedMessage {
     pub(in crate::modules::queue) fn id(&self) -> Uuid {
         self.id
@@ -63,7 +83,7 @@ impl DequeuedMessage {
 pub(in crate::modules::queue) async fn execute<R>(
     repository: &R,
     command: DequeueMessageCommand,
-) -> Result<Option<DequeuedMessage>, DequeueMessageError>
+) -> Result<DequeueMessageResult, DequeueMessageError>
 where
     R: QueueRepository,
 {
@@ -81,20 +101,33 @@ where
             priority,
             receipt_handle,
             delivery_attempts,
+            queue_name,
+            dead_lettered,
         } => {
             tracing::Span::current().record("message.id", field::display(id));
             tracing::Span::current().record("message.priority", priority.as_str());
             tracing::Span::current().record("message.delivery_attempts", delivery_attempts);
 
-            Ok(Some(DequeuedMessage {
-                id,
-                payload,
-                priority,
-                receipt_handle,
-                delivery_attempts,
-            }))
+            Ok(DequeueMessageResult {
+                message: Some(DequeuedMessage {
+                    id,
+                    payload,
+                    priority,
+                    receipt_handle,
+                    delivery_attempts,
+                }),
+                queue_name,
+                dead_lettered,
+            })
         }
-        DequeueMessageOutcome::Empty => Ok(None),
+        DequeueMessageOutcome::Empty {
+            queue_name,
+            dead_lettered,
+        } => Ok(DequeueMessageResult {
+            message: None,
+            queue_name,
+            dead_lettered,
+        }),
         DequeueMessageOutcome::QueueNotFound => Err(DequeueMessageError::QueueNotFound),
     }
 }

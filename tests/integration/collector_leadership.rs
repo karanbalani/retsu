@@ -81,8 +81,8 @@ fn has_successful_snapshot(metrics: &str) -> bool {
 
 fn assert_queue_state(metrics: &str, queue_name: &str) {
     assert!(
-        has_queue_metric(metrics, "queue_messages_ready", queue_name, "1"),
-        "the ready message should appear in queue-state metrics"
+        has_queue_metric(metrics, "queue_messages_ready", queue_name, "2"),
+        "the ready message and elapsed lease should appear as logically ready"
     );
     assert!(
         has_queue_metric(metrics, "queue_messages_in_flight", queue_name, "0"),

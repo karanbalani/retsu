@@ -13,7 +13,7 @@ Related guides:
 
 Queue metrics fall into two groups:
 
-- **Event metrics** record something that happened, such as enqueue, acknowledge, retry, expiry, or dead-letter movement.
+- **Event metrics** record something that happened, such as enqueue, acknowledge, expiry, or dead-letter movement.
 - **State metrics** describe what is true now, such as the number of ready messages or the age of the oldest in-flight message.
 
 Event counters are recorded by the queue operation that completes the action. State metrics come from PostgreSQL because no single API process sees every producer, consumer, and worker.
@@ -51,7 +51,7 @@ An empty queue and priority exports a count and age of zero. Read an age togethe
 The following metrics do not come from the state snapshot:
 
 - enqueue and acknowledge counters come from successful queue commands;
-- retry and dead-letter counters come from the visibility-timeout worker;
+- dead-letter counters come from dequeue's bounded maintenance work;
 - expiry counters come from the expiry worker;
 - snapshot age and collection health describe the collector itself.
 
@@ -78,7 +78,7 @@ The rollup changes the target:
 
 ```text
 refresh cost ≈ queues × priorities × fixed shards
-             + overdue worker lag
+             + elapsed leases
              + indexed oldest-row seeks
 ```
 
@@ -138,14 +138,17 @@ Three PostgreSQL triggers cover message inserts, updates, and deletes. They upda
 | Message change | Ready count | In-flight count |
 | --- | ---: | ---: |
 | Enqueue | +1 | 0 |
-| Dequeue | -1 | +1 |
+| First dequeue | -1 | +1 |
+| Retry after timeout | 0 | 0 |
 | Acknowledge | 0 | -1 |
-| Return after timeout | +1 | -1 |
 | Move to dead-letter storage | 0 | -1 |
 | Remove an expired ready message | -1 | 0 |
 | Remove an expired in-flight message | 0 | -1 |
 
-The triggers receive all rows changed by one SQL statement as a group. They combine changes for the same shard before updating the rollup. A worker batch therefore performs at most one adjustment per affected shard instead of one counter update per message.
+The triggers receive all rows changed by one SQL statement as a group. They
+combine changes for the same shard before updating the rollup. A dequeue's
+bounded dead-letter batch therefore performs at most one adjustment per
+affected shard instead of one counter update per message.
 
 The database owns these updates because:
 
@@ -158,10 +161,13 @@ The migration backfills the rollup from messages that already exist. It also ins
 
 ## Physical state and logical state
 
-The rollup records the state physically stored in each message row. Time can make that row unavailable before a worker changes it:
+The rollup records the state physically stored in each message row. Time can
+change the logical state without changing that row:
 
 - a ready message can expire before the expiry worker removes it;
-- an in-flight lease can time out before the timeout worker returns or dead-letters it.
+- an in-flight lease becomes retryable when `available_after` passes;
+- an exhausted elapsed lease remains pending until a dequeue moves it to
+  dead-letter storage.
 
 The collector converts physical state into the state visible to consumers:
 
@@ -169,13 +175,16 @@ The collector converts physical state into the state visible to consumers:
 logical ready
     = stored ready count
     - expired ready rows waiting for cleanup
+    + unexpired, retryable in-flight rows whose available_after has passed
 
 logical in flight
     = stored in-flight count
-    - timed-out in-flight rows waiting for processing
+    - in-flight rows whose available_after has passed
 ```
 
-Indexes starting with `expires_at` and `visibility_deadline` limit these subtractions to overdue rows. Under normal operation, the work is proportional to worker lag rather than the full backlog.
+Indexes starting with `expires_at` and `available_after` limit these corrections
+to time-eligible rows. Exhausted and expired elapsed leases appear in neither
+logical ready nor logical in-flight counts.
 
 Retsu does not hide a negative logical result with `MAX(0, value)`. A negative result means the rollup has drifted, so collection fails visibly.
 
@@ -188,7 +197,8 @@ Counts come from the rollup. Oldest-message ages come from partial indexes on th
 (queue_id, priority, enqueued_at) for IN_FLIGHT messages
 ```
 
-The indexes include the expiry or visibility timestamp needed to check whether the candidate is still eligible.
+The indexes include the expiry and `available_after` timestamps needed to check
+whether the candidate is logically ready or actively leased.
 
 For each queue and priority, PostgreSQL seeks to the oldest `enqueued_at` and stops at the first eligible row:
 
@@ -229,9 +239,9 @@ Each message change adds small constant work:
 | Operation | Added rollup work |
 | --- | --- |
 | Enqueue | Increment one shard |
-| Dequeue | Move one count from ready to in-flight |
+| First dequeue | Move one count from ready to in-flight |
+| Retry after timeout | No physical-state counter change |
 | Acknowledge | Decrement one in-flight shard |
-| Retry | Move one count from in-flight to ready |
 | Dead-letter | Decrement one in-flight shard |
 | Expire | Decrement the stored state shard |
 
@@ -251,9 +261,11 @@ The database rejects the transaction. Incorrect metrics are not silently committ
 
 The failed attempt and duration are recorded, the error is logged, and the collector process exits. A deployment restart or standby collector can recover leadership.
 
-### A timeout or expiry worker falls behind
+### Elapsed leases or expired messages accumulate
 
-Logical counts remain correct because overdue rows are subtracted. Query work grows with the overdue set, so worker lag should have its own alert.
+Logical counts remain correct because the collector applies time-based
+corrections. Query work grows with elapsed leases waiting for dequeue and
+expired rows waiting for the cleaner, so both backlogs should be monitored.
 
 ### The rollup needs repair
 
@@ -261,7 +273,8 @@ The message table remains authoritative. A future repair command can rebuild the
 
 ## Main implementation files
 
-- `migrations/20260727190617_create_queue_priority_state_rollups.sql` creates the table, functions, triggers, backfill, and indexes.
-- `src/modules/queue/infrastructure/postgres.rs` reads the rollup and performs indexed oldest-message lookups.
+- `migrations/20260726062530_create_table_queue_message.sql` creates the operational claim, dead-letter, and TTL indexes.
+- `migrations/20260727190617_create_queue_priority_state_rollups.sql` creates the table, functions, triggers, backfill, and metric-collection indexes.
+- `src/modules/queue/infrastructure/state_collector.rs` reads the rollup and performs indexed oldest-message lookups.
 - `src/modules/queue/worker/state_metrics_collector.rs` refreshes the cached snapshot.
 - `src/observability/metrics/queue_state.rs` exposes the snapshot through OpenTelemetry callbacks.
