@@ -103,8 +103,8 @@ def verdict(result: BenchmarkResult, noise_threshold: float) -> str:
 
 def control_is_stable(control: BenchmarkResult, noise_threshold: float) -> bool:
     return (
-        control.change_lower_bound <= noise_threshold
-        and control.change_upper_bound >= -noise_threshold
+        control.change_lower_bound >= -noise_threshold
+        and control.change_upper_bound <= noise_threshold
     )
 
 
