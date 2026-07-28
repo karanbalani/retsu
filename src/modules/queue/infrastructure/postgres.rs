@@ -329,8 +329,7 @@ impl QueueRepository for PostgresQueueRepository {
                 $2,
                 $3,
                 $4,
-                CURRENT_TIMESTAMP
-                    + ($5::BIGINT * INTERVAL '1 second')
+                CURRENT_TIMESTAMP + ($5::BIGINT * INTERVAL '1 second')
             )
             "#,
         )
