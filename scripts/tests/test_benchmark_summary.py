@@ -4,7 +4,12 @@ import unittest
 from pathlib import Path
 from typing import Optional
 
-from scripts.benchmark_summary import BenchmarkResult, load_results, render_markdown
+from scripts.benchmark_summary import (
+    BenchmarkPair,
+    BenchmarkResult,
+    load_results,
+    render_markdown,
+)
 
 
 class BenchmarkSummaryTest(unittest.TestCase):
@@ -41,11 +46,15 @@ class BenchmarkSummaryTest(unittest.TestCase):
                 )
             ]
             summary = render_markdown(
-                results, controls, "abc123", "def456", "standard", 0.01
+                [BenchmarkPair("Pair 1", results, controls)],
+                "abc123",
+                "def456",
+                "standard",
+                0.01,
             )
 
             self.assertIn(
-                "| `queue_operations/lifecycle/1_kib` | 2.50 ms | 2.00 ms",
+                "| `queue_operations/lifecycle/1_kib` | 2.50 ms → 2.00 ms",
                 summary,
             )
             self.assertIn("−20.00% (−25.00% to −15.00%)", summary)
@@ -88,7 +97,11 @@ class BenchmarkSummaryTest(unittest.TestCase):
                 )
             ]
             summary = render_markdown(
-                results, controls, "abc123", "def456", "standard", 0.01
+                [BenchmarkPair("Pair 1", results, controls)],
+                "abc123",
+                "def456",
+                "standard",
+                0.01,
             )
 
             self.assertIn("⚪ Inconclusive", summary)
@@ -108,7 +121,11 @@ class BenchmarkSummaryTest(unittest.TestCase):
         )
 
         summary = render_markdown(
-            [candidate], [control], "abc123", "def456", "standard", 0.01
+            [BenchmarkPair("Pair 1", [candidate], [control])],
+            "abc123",
+            "def456",
+            "standard",
+            0.01,
         )
 
         self.assertIn("🟠 Unstable", summary)
@@ -130,11 +147,59 @@ class BenchmarkSummaryTest(unittest.TestCase):
         )
 
         summary = render_markdown(
-            [candidate], [control], "abc123", "def456", "standard", 0.01
+            [BenchmarkPair("Pair 1", [candidate], [control])],
+            "abc123",
+            "def456",
+            "standard",
+            0.01,
         )
 
         self.assertIn("2.50 ms (1,600 ops/s)", summary)
         self.assertIn("2.00 ms (2,000 ops/s)", summary)
+
+    def test_requires_stable_pairs_to_agree(self) -> None:
+        improved = self.result(
+            name="queue_operations/lifecycle/1_kib",
+            change=-0.2,
+            lower_bound=-0.25,
+            upper_bound=-0.15,
+        )
+        inconclusive = self.result(
+            name="queue_operations/lifecycle/1_kib",
+            change=-0.005,
+            lower_bound=-0.02,
+            upper_bound=0.01,
+        )
+        stable_control = self.result(
+            name="queue_operations/lifecycle/1_kib",
+            change=0.0,
+            lower_bound=-0.005,
+            upper_bound=0.005,
+        )
+
+        summary = render_markdown(
+            [
+                BenchmarkPair("Pair 1", [improved], [stable_control]),
+                BenchmarkPair("Pair 2", [inconclusive], [stable_control]),
+            ],
+            "abc123",
+            "def456",
+            "standard",
+            0.01,
+        )
+
+        self.assertIn("Comparison pairs: `2`", summary)
+        self.assertIn(
+            "| `queue_operations/lifecycle/1_kib` "
+            "| 2.50 ms → 2.00 ms<br>−20.00%",
+            summary,
+        )
+        result_row = next(
+            line
+            for line in summary.splitlines()
+            if line.startswith("| `queue_operations/lifecycle/1_kib`")
+        )
+        self.assertTrue(result_row.endswith("| ⚪ Inconclusive |"))
 
     def result(
         self,
