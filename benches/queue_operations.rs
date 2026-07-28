@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use criterion::{Criterion, criterion_group, criterion_main};
+use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 
 #[allow(dead_code)]
 #[path = "../tests/integration/harness.rs"]
@@ -9,7 +9,8 @@ mod harness;
 use harness::{IntegrationSystem, unique_queue_name};
 
 const PAYLOAD_SIZE_BYTES: usize = 1024;
-const DEQUEUE_QUEUE_DEPTH: u32 = 1_000;
+const LARGE_PAYLOAD_SIZE_BYTES: usize = 64 * 1024;
+const DEQUEUE_QUEUE_DEPTHS: [u32; 3] = [1, 1_000, 10_000];
 
 fn benchmark_queue_operations(criterion: &mut Criterion) {
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -21,19 +22,32 @@ fn benchmark_queue_operations(criterion: &mut Criterion) {
         .block_on(IntegrationSystem::start())
         .expect("benchmark system should start");
     let payload = "x".repeat(PAYLOAD_SIZE_BYTES);
+    let large_payload = "x".repeat(LARGE_PAYLOAD_SIZE_BYTES);
 
     let enqueue_queue_id = create_benchmark_queue(&runtime, &system, "benchmark-enqueue");
-    let dequeue_queue_id = create_benchmark_queue(&runtime, &system, "benchmark-dequeue");
     let acknowledge_queue_id = create_benchmark_queue(&runtime, &system, "benchmark-acknowledge");
     let lifecycle_queue_id = create_benchmark_queue(&runtime, &system, "benchmark-lifecycle");
+    let large_lifecycle_queue_id =
+        create_benchmark_queue(&runtime, &system, "benchmark-large-lifecycle");
+    let concurrent_4_queue_id = create_benchmark_queue(&runtime, &system, "benchmark-concurrent-4");
+    let concurrent_8_queue_id = create_benchmark_queue(&runtime, &system, "benchmark-concurrent-8");
+    let dequeue_queues = DEQUEUE_QUEUE_DEPTHS.map(|depth| {
+        let queue_id = create_benchmark_queue(
+            &runtime,
+            &system,
+            &format!("benchmark-dequeue-depth-{depth}"),
+        );
 
-    runtime
-        .block_on(system.seed_ready_messages_directly(
-            dequeue_queue_id,
-            DEQUEUE_QUEUE_DEPTH,
-            PAYLOAD_SIZE_BYTES as u32,
-        ))
-        .expect("dequeue benchmark messages should be seeded");
+        runtime
+            .block_on(system.seed_ready_messages_directly(
+                queue_id,
+                depth,
+                PAYLOAD_SIZE_BYTES as u32,
+            ))
+            .expect("dequeue benchmark messages should be seeded");
+
+        (depth, queue_id)
+    });
 
     let mut group = criterion.benchmark_group("queue_operations");
 
@@ -43,11 +57,16 @@ fn benchmark_queue_operations(criterion: &mut Criterion) {
         });
     });
 
-    group.bench_function("dequeue/1_kib_depth_1k", |bencher| {
-        bencher.to_async(&runtime).iter_custom(|iterations| {
-            measure_dequeue_iterations(&system, dequeue_queue_id, iterations)
-        });
-    });
+    for (depth, queue_id) in dequeue_queues {
+        group.bench_function(
+            format!("dequeue/1_kib_depth_{}", format_depth(depth)),
+            |bencher| {
+                bencher.to_async(&runtime).iter_custom(|iterations| {
+                    measure_dequeue_iterations(&system, queue_id, iterations)
+                });
+            },
+        );
+    }
 
     group.bench_function("acknowledge/1_kib", |bencher| {
         bencher.to_async(&runtime).iter_custom(|iterations| {
@@ -61,27 +80,36 @@ fn benchmark_queue_operations(criterion: &mut Criterion) {
     });
 
     group.bench_function("lifecycle/1_kib", |bencher| {
-        bencher.to_async(&runtime).iter(|| async {
-            let message_id = system
-                .enqueue_message(lifecycle_queue_id, &payload, "MEDIUM", None)
-                .await
-                .expect("benchmark message should be enqueued");
-            let message = system
-                .dequeue_message(lifecycle_queue_id)
-                .await
-                .expect("benchmark message should be dequeued")
-                .expect("benchmark queue should contain one message");
+        bencher
+            .to_async(&runtime)
+            .iter(|| execute_lifecycle(&system, lifecycle_queue_id, payload.as_str()));
+    });
 
-            assert_eq!(message.id, message_id);
-
-            system
-                .acknowledge_message(lifecycle_queue_id, message.id, message.receipt_handle)
-                .await
-                .expect("benchmark message should be acknowledged");
-        });
+    group.bench_function("lifecycle/64_kib", |bencher| {
+        bencher
+            .to_async(&runtime)
+            .iter(|| execute_lifecycle(&system, large_lifecycle_queue_id, large_payload.as_str()));
     });
 
     group.finish();
+
+    let mut concurrency_group = criterion.benchmark_group("concurrent_lifecycle");
+
+    concurrency_group.throughput(Throughput::Elements(4));
+    concurrency_group.bench_function("4_workers/1_kib", |bencher| {
+        bencher.to_async(&runtime).iter(|| {
+            execute_concurrent_lifecycles(&system, concurrent_4_queue_id, payload.as_str(), 4)
+        });
+    });
+
+    concurrency_group.throughput(Throughput::Elements(8));
+    concurrency_group.bench_function("8_workers/1_kib", |bencher| {
+        bencher.to_async(&runtime).iter(|| {
+            execute_concurrent_lifecycles(&system, concurrent_8_queue_id, payload.as_str(), 8)
+        });
+    });
+
+    concurrency_group.finish();
 
     runtime.block_on(async {
         drop(system);
@@ -180,6 +208,73 @@ async fn measure_acknowledge_iterations(
     }
 
     measured
+}
+
+async fn execute_lifecycle(system: &IntegrationSystem, queue_id: uuid::Uuid, payload: &str) {
+    let (enqueued_message_id, dequeued_message_id) =
+        execute_worker_lifecycle(system, queue_id, payload).await;
+
+    assert_eq!(dequeued_message_id, enqueued_message_id);
+}
+
+async fn execute_worker_lifecycle(
+    system: &IntegrationSystem,
+    queue_id: uuid::Uuid,
+    payload: &str,
+) -> (uuid::Uuid, uuid::Uuid) {
+    let enqueued_message_id = system
+        .enqueue_message(queue_id, payload, "MEDIUM", None)
+        .await
+        .expect("benchmark message should be enqueued");
+    let message = system
+        .dequeue_message(queue_id)
+        .await
+        .expect("benchmark message should be dequeued")
+        .expect("benchmark queue should contain one message");
+
+    system
+        .acknowledge_message(queue_id, message.id, message.receipt_handle)
+        .await
+        .expect("benchmark message should be acknowledged");
+
+    (enqueued_message_id, message.id)
+}
+
+async fn execute_concurrent_lifecycles(
+    system: &IntegrationSystem,
+    queue_id: uuid::Uuid,
+    payload: &str,
+    concurrency: u8,
+) {
+    match concurrency {
+        4 => {
+            execute_four_lifecycles(system, queue_id, payload).await;
+        }
+        8 => {
+            tokio::join!(
+                execute_four_lifecycles(system, queue_id, payload),
+                execute_four_lifecycles(system, queue_id, payload),
+            );
+        }
+        _ => unreachable!("concurrency must be one of the benchmarked levels"),
+    }
+}
+
+async fn execute_four_lifecycles(system: &IntegrationSystem, queue_id: uuid::Uuid, payload: &str) {
+    tokio::join!(
+        execute_worker_lifecycle(system, queue_id, payload),
+        execute_worker_lifecycle(system, queue_id, payload),
+        execute_worker_lifecycle(system, queue_id, payload),
+        execute_worker_lifecycle(system, queue_id, payload),
+    );
+}
+
+fn format_depth(depth: u32) -> String {
+    match depth {
+        1_000 => "1k".to_owned(),
+        10_000 => "10k".to_owned(),
+        _ => depth.to_string(),
+    }
 }
 
 criterion_group!(benches, benchmark_queue_operations);
