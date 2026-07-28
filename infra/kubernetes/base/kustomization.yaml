@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - service-account.yaml
+  - config-map.yaml
+  - api-deployment.yaml
+  - api-service.yaml
+  - api-pod-disruption-budget.yaml
+  - expired-message-cleaner-deployment.yaml
+  - expired-message-cleaner-service.yaml
+  - state-metrics-collector-deployment.yaml
+  - state-metrics-collector-service.yaml
+  - migration-job.yaml
