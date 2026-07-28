@@ -4,6 +4,7 @@ import argparse
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional
 
 
 @dataclass(frozen=True)
@@ -11,6 +12,7 @@ class BenchmarkResult:
     name: str
     base_nanoseconds: float
     candidate_nanoseconds: float
+    throughput_elements: Optional[int]
     change: float
     change_lower_bound: float
     change_upper_bound: float
@@ -24,7 +26,7 @@ def read_json(path: Path) -> dict:
 def load_results(criterion_directory: Path, baseline: str) -> list[BenchmarkResult]:
     results = []
 
-    for change_path in sorted(criterion_directory.glob("*/change/estimates.json")):
+    for change_path in sorted(criterion_directory.glob("**/change/estimates.json")):
         benchmark_directory = change_path.parent.parent
         base_path = benchmark_directory / baseline / "estimates.json"
         candidate_path = benchmark_directory / "new" / "estimates.json"
@@ -37,12 +39,17 @@ def load_results(criterion_directory: Path, baseline: str) -> list[BenchmarkResu
         candidate = read_json(candidate_path)["mean"]
         change = read_json(change_path)["mean"]
         metadata = read_json(metadata_path)
+        throughput = metadata.get("throughput")
+        throughput_elements = (
+            throughput.get("Elements") if isinstance(throughput, dict) else None
+        )
 
         results.append(
             BenchmarkResult(
                 name=metadata["full_id"],
                 base_nanoseconds=base["point_estimate"],
                 candidate_nanoseconds=candidate["point_estimate"],
+                throughput_elements=throughput_elements,
                 change=change["point_estimate"],
                 change_lower_bound=change["confidence_interval"]["lower_bound"],
                 change_upper_bound=change["confidence_interval"]["upper_bound"],
@@ -69,6 +76,16 @@ def format_percentage(value: float) -> str:
     return f"{value:+.2%}".replace("-", "−")
 
 
+def format_measurement(nanoseconds: float, throughput_elements: Optional[int]) -> str:
+    duration = format_duration(nanoseconds)
+
+    if throughput_elements is None:
+        return duration
+
+    operations_per_second = throughput_elements * 1_000_000_000 / nanoseconds
+    return f"{duration} ({operations_per_second:,.0f} ops/s)"
+
+
 def verdict(result: BenchmarkResult, noise_threshold: float) -> str:
     if result.change_upper_bound < -noise_threshold:
         return "🟢 Improved"
@@ -93,6 +110,24 @@ def render_markdown(
     noise_threshold: float,
 ) -> str:
     controls_by_name = {control.name: control for control in controls}
+    rendered_results = []
+
+    for result in results:
+        control = controls_by_name.get(result.name)
+        if control is None:
+            raise ValueError(f"no same-code control found for {result.name}")
+
+        result_verdict = (
+            verdict(result, noise_threshold)
+            if control_is_stable(control, noise_threshold)
+            else "🟠 Unstable"
+        )
+        rendered_results.append((result, control, result_verdict))
+
+    outcome_counts = {
+        outcome: sum(result_verdict == outcome for _, _, result_verdict in rendered_results)
+        for outcome in ("🟢 Improved", "🔴 Regressed", "⚪ Inconclusive", "🟠 Unstable")
+    }
 
     lines = [
         "## Benchmark comparison",
@@ -101,16 +136,18 @@ def render_markdown(
         f"- Candidate: `{candidate}`",
         f"- Mode: `{mode}`",
         f"- Practical noise threshold: `{noise_threshold:.0%}`",
+        (
+            f"- Outcomes: {outcome_counts['🟢 Improved']} improved · "
+            f"{outcome_counts['🔴 Regressed']} regressed · "
+            f"{outcome_counts['⚪ Inconclusive']} inconclusive · "
+            f"{outcome_counts['🟠 Unstable']} unstable"
+        ),
         "",
         "| Benchmark | Base mean | Candidate mean | Candidate change (95% CI) | Same-code control | Verdict |",
         "| --- | ---: | ---: | ---: | ---: | --- |",
     ]
 
-    for result in results:
-        control = controls_by_name.get(result.name)
-        if control is None:
-            raise ValueError(f"no same-code control found for {result.name}")
-
+    for result, control, result_verdict in rendered_results:
         change = (
             f"{format_percentage(result.change)} "
             f"({format_percentage(result.change_lower_bound)} to "
@@ -121,15 +158,12 @@ def render_markdown(
             f"({format_percentage(control.change_lower_bound)} to "
             f"{format_percentage(control.change_upper_bound)})"
         )
-        result_verdict = (
-            verdict(result, noise_threshold)
-            if control_is_stable(control, noise_threshold)
-            else "🟠 Unstable"
-        )
         name = result.name.replace("|", "\\|")
         lines.append(
-            f"| `{name}` | {format_duration(result.base_nanoseconds)} "
-            f"| {format_duration(result.candidate_nanoseconds)} | {change} "
+            f"| `{name}` "
+            f"| {format_measurement(result.base_nanoseconds, result.throughput_elements)} "
+            f"| {format_measurement(result.candidate_nanoseconds, result.throughput_elements)} "
+            f"| {change} "
             f"| {control_change} | {result_verdict} |"
         )
 

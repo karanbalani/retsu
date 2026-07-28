@@ -85,6 +85,7 @@ jobs:
       - name: Measure base
         run: |
           git switch --detach "$BASE_SHA"
+          rm -rf target/criterion
           cargo bench --locked --bench queue_operations -- \
             --save-baseline base \
             --sample-size "$BENCHMARK_SAMPLE_SIZE" \

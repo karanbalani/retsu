@@ -11,7 +11,9 @@ class BenchmarkSummaryTest(unittest.TestCase):
     def test_renders_a_significant_improvement(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             criterion_directory = Path(temporary_directory)
-            benchmark_directory = criterion_directory / "message_lifecycle_1_kib"
+            benchmark_directory = (
+                criterion_directory / "queue_operations" / "lifecycle_1_kib"
+            )
 
             self.write_estimate(benchmark_directory / "base", 2_500_000)
             self.write_estimate(benchmark_directory / "new", 2_000_000)
@@ -23,13 +25,16 @@ class BenchmarkSummaryTest(unittest.TestCase):
             )
             self.write_json(
                 benchmark_directory / "new" / "benchmark.json",
-                {"full_id": "message_lifecycle/1_kib"},
+                {
+                    "full_id": "queue_operations/lifecycle/1_kib",
+                    "throughput": None,
+                },
             )
 
             results = load_results(criterion_directory, "base")
             controls = [
                 self.result(
-                    name="message_lifecycle/1_kib",
+                    name="queue_operations/lifecycle/1_kib",
                     change=0.0,
                     lower_bound=-0.005,
                     upper_bound=0.005,
@@ -39,14 +44,23 @@ class BenchmarkSummaryTest(unittest.TestCase):
                 results, controls, "abc123", "def456", "standard", 0.01
             )
 
-            self.assertIn("| `message_lifecycle/1_kib` | 2.50 ms | 2.00 ms", summary)
+            self.assertIn(
+                "| `queue_operations/lifecycle/1_kib` | 2.50 ms | 2.00 ms",
+                summary,
+            )
             self.assertIn("−20.00% (−25.00% to −15.00%)", summary)
             self.assertIn("🟢 Improved", summary)
+            self.assertIn(
+                "Outcomes: 1 improved · 0 regressed · 0 inconclusive · 0 unstable",
+                summary,
+            )
 
     def test_treats_a_small_change_as_inconclusive(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             criterion_directory = Path(temporary_directory)
-            benchmark_directory = criterion_directory / "message_lifecycle_1_kib"
+            benchmark_directory = (
+                criterion_directory / "queue_operations" / "lifecycle_1_kib"
+            )
 
             self.write_estimate(benchmark_directory / "base", 2_500_000)
             self.write_estimate(benchmark_directory / "new", 2_487_500)
@@ -58,13 +72,16 @@ class BenchmarkSummaryTest(unittest.TestCase):
             )
             self.write_json(
                 benchmark_directory / "new" / "benchmark.json",
-                {"full_id": "message_lifecycle/1_kib"},
+                {
+                    "full_id": "queue_operations/lifecycle/1_kib",
+                    "throughput": None,
+                },
             )
 
             results = load_results(criterion_directory, "base")
             controls = [
                 self.result(
-                    name="message_lifecycle/1_kib",
+                    name="queue_operations/lifecycle/1_kib",
                     change=0.0,
                     lower_bound=-0.005,
                     upper_bound=0.005,
@@ -96,6 +113,29 @@ class BenchmarkSummaryTest(unittest.TestCase):
 
         self.assertIn("🟠 Unstable", summary)
 
+    def test_renders_concurrent_throughput(self) -> None:
+        candidate = self.result(
+            name="concurrent_lifecycle/4_workers/1_kib",
+            change=-0.2,
+            lower_bound=-0.25,
+            upper_bound=-0.15,
+            throughput_elements=4,
+        )
+        control = self.result(
+            name="concurrent_lifecycle/4_workers/1_kib",
+            change=0.0,
+            lower_bound=-0.005,
+            upper_bound=0.005,
+            throughput_elements=4,
+        )
+
+        summary = render_markdown(
+            [candidate], [control], "abc123", "def456", "standard", 0.01
+        )
+
+        self.assertIn("2.50 ms (1,600 ops/s)", summary)
+        self.assertIn("2.00 ms (2,000 ops/s)", summary)
+
     def result(
         self,
         *,
@@ -103,11 +143,13 @@ class BenchmarkSummaryTest(unittest.TestCase):
         change: float,
         lower_bound: float,
         upper_bound: float,
+        throughput_elements: Optional[int] = None,
     ) -> BenchmarkResult:
         return BenchmarkResult(
             name=name,
             base_nanoseconds=2_500_000,
             candidate_nanoseconds=2_000_000,
+            throughput_elements=throughput_elements,
             change=change,
             change_lower_bound=lower_bound,
             change_upper_bound=upper_bound,
