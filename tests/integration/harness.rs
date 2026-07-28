@@ -1,4 +1,5 @@
 use std::{
+    env,
     fs::{File, read_to_string},
     future::Future,
     net::TcpListener,
@@ -26,18 +27,23 @@ use uuid::Uuid;
 const PROCESS_START_TIMEOUT: Duration = Duration::from_secs(20);
 const POSTGRES_PORT: u16 = 5432;
 const DISTRIBUTED_CACHE_PORT: u16 = 6379;
+const API_PORT: u16 = 2424;
+const WORKER_MANAGEMENT_PORT: u16 = 24247;
 const DRAGONFLY_IMAGE: &str = "docker.dragonflydb.io/dragonflydb/dragonfly";
 const DRAGONFLY_TAG: &str = "v1.38.0";
+const TEST_IMAGE_ENVIRONMENT_VARIABLE: &str = "RETSU_TEST_IMAGE";
 pub const DEQUEUE_PAUSE_LOCK_KEY: i64 = 363_636;
 pub const DEQUEUE_PAUSE_PAYLOAD: &str = "integration-pause-dequeue";
 
 pub struct IntegrationSystem {
-    processes: Vec<ManagedProcess>,
+    processes: Vec<ManagedRetsu>,
     database_pool: PgPool,
     _postgres: ContainerAsync<Postgres>,
     _distributed_cache: ContainerAsync<GenericImage>,
     log_directory: TempDir,
-    database_url: String,
+    runtime: RetsuRuntime,
+    retsu_database_url: String,
+    retsu_distributed_cache_url: String,
     distributed_cache_url: String,
     api_base_url: String,
     client: Client,
@@ -76,16 +82,45 @@ struct EnqueueMessageResponse {
     id: Uuid,
 }
 
+struct RetsuProcessSpec<'a> {
+    name: &'a str,
+    arguments: &'a [&'a str],
+    container_port: u16,
+    port_environment_variable: &'a str,
+    environment: &'a [(&'a str, String)],
+}
+
+#[derive(Clone)]
+enum RetsuRuntime {
+    Local,
+    Image {
+        name: String,
+        tag: String,
+        network: String,
+    },
+}
+
 impl IntegrationSystem {
     pub async fn start() -> anyhow::Result<Self> {
         let log_directory =
             tempfile::tempdir().context("failed to create integration-test log directory")?;
+        let runtime = RetsuRuntime::from_environment()?;
+        let identifier = Uuid::new_v4().simple().to_string();
+        let postgres_name = format!("retsu-postgres-{identifier}");
+        let distributed_cache_name = format!("retsu-dragonfly-{identifier}");
 
-        let postgres = Postgres::default()
-            .with_tag("18.4-alpine")
-            .start()
-            .await
-            .context("failed to start PostgreSQL through Testcontainers")?;
+        let postgres_image = Postgres::default().with_tag("18.4-alpine");
+        let postgres = match &runtime {
+            RetsuRuntime::Local => postgres_image.start().await,
+            RetsuRuntime::Image { network, .. } => {
+                postgres_image
+                    .with_network(network)
+                    .with_container_name(&postgres_name)
+                    .start()
+                    .await
+            }
+        }
+        .context("failed to start PostgreSQL through Testcontainers")?;
 
         let host = postgres
             .get_host()
@@ -97,7 +132,7 @@ impl IntegrationSystem {
             .context("failed to resolve the PostgreSQL container port")?;
         let database_url = format!("postgres://postgres:postgres@{host}:{port}/postgres");
 
-        let distributed_cache = GenericImage::new(DRAGONFLY_IMAGE, DRAGONFLY_TAG)
+        let distributed_cache_image = GenericImage::new(DRAGONFLY_IMAGE, DRAGONFLY_TAG)
             .with_exposed_port(DISTRIBUTED_CACHE_PORT.tcp())
             .with_wait_for(WaitFor::healthcheck())
             .with_cmd([
@@ -105,10 +140,18 @@ impl IntegrationSystem {
                 "--maxmemory=256mb",
                 "--proactor_threads=1",
                 "--primary_port_http_enabled=false",
-            ])
-            .start()
-            .await
-            .context("failed to start Dragonfly through Testcontainers")?;
+            ]);
+        let distributed_cache = match &runtime {
+            RetsuRuntime::Local => distributed_cache_image.start().await,
+            RetsuRuntime::Image { network, .. } => {
+                distributed_cache_image
+                    .with_network(network)
+                    .with_container_name(&distributed_cache_name)
+                    .start()
+                    .await
+            }
+        }
+        .context("failed to start Dragonfly through Testcontainers")?;
         let distributed_cache_host = distributed_cache
             .get_host()
             .await
@@ -120,7 +163,15 @@ impl IntegrationSystem {
         let distributed_cache_url =
             format!("redis://{distributed_cache_host}:{distributed_cache_port}");
 
-        run_migrations(&database_url)?;
+        let (retsu_database_url, retsu_distributed_cache_url) = match &runtime {
+            RetsuRuntime::Local => (database_url.clone(), distributed_cache_url.clone()),
+            RetsuRuntime::Image { .. } => (
+                format!("postgres://postgres:postgres@{postgres_name}:{POSTGRES_PORT}/postgres"),
+                format!("redis://{distributed_cache_name}:{DISTRIBUTED_CACHE_PORT}"),
+            ),
+        };
+
+        run_migrations(&runtime, &retsu_database_url, &retsu_distributed_cache_url).await?;
 
         let database_pool = PgPoolOptions::new()
             .max_connections(2)
@@ -133,16 +184,20 @@ impl IntegrationSystem {
             .build()
             .context("failed to build the integration-test HTTP client")?;
 
-        let api_port = unused_port()?;
-        let api_base_url = format!("http://127.0.0.1:{api_port}");
-        let mut api = spawn_retsu(
-            "api",
-            &["api"],
-            &database_url,
-            &distributed_cache_url,
-            &[("RETSU_HTTP__PORT", api_port.to_string())],
+        let (mut api, api_base_url) = spawn_retsu(
+            &runtime,
+            &retsu_database_url,
+            &retsu_distributed_cache_url,
+            RetsuProcessSpec {
+                name: "api",
+                arguments: &["api"],
+                container_port: API_PORT,
+                port_environment_variable: "RETSU_HTTP__PORT",
+                environment: &[("RETSU_HTTP__BIND_ADDRESS", "0.0.0.0".to_owned())],
+            },
             log_directory.path(),
-        )?;
+        )
+        .await?;
 
         wait_for_http(&client, &format!("{api_base_url}/health/ready"), &mut api).await?;
 
@@ -152,7 +207,9 @@ impl IntegrationSystem {
             _postgres: postgres,
             _distributed_cache: distributed_cache,
             log_directory,
-            database_url,
+            runtime,
+            retsu_database_url,
+            retsu_distributed_cache_url,
             distributed_cache_url,
             api_base_url,
             client,
@@ -160,19 +217,23 @@ impl IntegrationSystem {
     }
 
     pub async fn start_worker(&mut self, name: &str) -> anyhow::Result<WorkerEndpoint> {
-        let management_port = unused_port()?;
-        let base_url = format!("http://127.0.0.1:{management_port}");
-        let mut process = spawn_retsu(
-            name,
-            &["worker", "run", "queue", name],
-            &self.database_url,
-            &self.distributed_cache_url,
-            &[(
-                "RETSU_WORKER__MANAGEMENT__PORT",
-                management_port.to_string(),
-            )],
+        let (mut process, base_url) = spawn_retsu(
+            &self.runtime,
+            &self.retsu_database_url,
+            &self.retsu_distributed_cache_url,
+            RetsuProcessSpec {
+                name,
+                arguments: &["worker", "run", "queue", name],
+                container_port: WORKER_MANAGEMENT_PORT,
+                port_environment_variable: "RETSU_WORKER__MANAGEMENT__PORT",
+                environment: &[(
+                    "RETSU_WORKER__MANAGEMENT__BIND_ADDRESS",
+                    "0.0.0.0".to_owned(),
+                )],
+            },
             self.log_directory.path(),
-        )?;
+        )
+        .await?;
 
         wait_for_http(
             &self.client,
@@ -190,13 +251,13 @@ impl IntegrationSystem {
         })
     }
 
-    pub fn stop_worker(&mut self, worker: &WorkerEndpoint) -> anyhow::Result<()> {
+    pub async fn stop_worker(&mut self, worker: &WorkerEndpoint) -> anyhow::Result<()> {
         let process = self
             .processes
             .get_mut(worker.process_index)
             .context("worker process handle was not registered")?;
 
-        process.stop()
+        process.stop().await
     }
 
     pub async fn create_queue(
@@ -556,56 +617,193 @@ where
     }
 }
 
-fn run_migrations(database_url: &str) -> anyhow::Result<()> {
-    let output = base_command(database_url, None)
-        .args(["migrate"])
-        .output()
-        .context("failed to start the migration process")?;
+impl RetsuRuntime {
+    fn from_environment() -> anyhow::Result<Self> {
+        let reference = match env::var(TEST_IMAGE_ENVIRONMENT_VARIABLE) {
+            Ok(reference) => reference,
+            Err(env::VarError::NotPresent) => return Ok(Self::Local),
+            Err(env::VarError::NotUnicode(_)) => {
+                anyhow::bail!("{TEST_IMAGE_ENVIRONMENT_VARIABLE} was not valid Unicode")
+            }
+        };
 
-    ensure!(
-        output.status.success(),
-        "migration process failed with {}\nstdout:\n{}\nstderr:\n{}",
-        output.status,
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr),
-    );
+        let last_slash = reference.rfind('/').unwrap_or_default();
+        let tag_separator = reference
+            .rfind(':')
+            .filter(|separator| *separator > last_slash)
+            .context("RETSU_TEST_IMAGE must contain an explicit image tag")?;
+        let (name, tag_with_separator) = reference.split_at(tag_separator);
+        let tag = &tag_with_separator[1..];
+
+        ensure!(!name.is_empty(), "RETSU_TEST_IMAGE image name was empty");
+        ensure!(!tag.is_empty(), "RETSU_TEST_IMAGE image tag was empty");
+        ensure!(
+            !reference.contains('@'),
+            "RETSU_TEST_IMAGE must use a tagged image reference"
+        );
+
+        Ok(Self::Image {
+            name: name.to_owned(),
+            tag: tag.to_owned(),
+            network: format!("retsu-integration-{}", Uuid::new_v4().simple()),
+        })
+    }
+}
+
+async fn run_migrations(
+    runtime: &RetsuRuntime,
+    database_url: &str,
+    distributed_cache_url: &str,
+) -> anyhow::Result<()> {
+    match runtime {
+        RetsuRuntime::Local => {
+            let output = base_command(database_url, None)
+                .args(["migrate"])
+                .output()
+                .context("failed to start the migration process")?;
+
+            ensure!(
+                output.status.success(),
+                "migration process failed with {}\nstdout:\n{}\nstderr:\n{}",
+                output.status,
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr),
+            );
+        }
+        RetsuRuntime::Image { name, tag, network } => {
+            let migration = GenericImage::new(name.clone(), tag.clone())
+                .with_cmd(["migrate"])
+                .with_network(network)
+                .with_env_var("RETSU_ENVIRONMENT", "test")
+                .with_env_var("RETSU_DATABASE__URL", database_url)
+                .with_env_var("RETSU_CACHE__DISTRIBUTED__URL", distributed_cache_url)
+                .with_env_var("RETSU_LOGGING__FILTER", "info")
+                .with_env_var("RETSU_LOGGING__FORMAT", "json")
+                .with_env_var("RETSU_TELEMETRY__TRACES__ENABLED", "false")
+                .start()
+                .await
+                .context("failed to start the migration container")?;
+
+            let exit_code = tokio::time::timeout(PROCESS_START_TIMEOUT, async {
+                loop {
+                    if let Some(exit_code) = migration
+                        .exit_code()
+                        .await
+                        .context("failed to inspect the migration container")?
+                    {
+                        return Ok::<i64, anyhow::Error>(exit_code);
+                    }
+
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            })
+            .await
+            .context("migration container did not exit before the startup timeout")??;
+
+            ensure!(
+                exit_code == 0,
+                "migration container exited with {exit_code}\n{}",
+                container_logs(&migration).await
+            );
+        }
+    }
 
     Ok(())
 }
 
-fn spawn_retsu(
-    name: &str,
-    arguments: &[&str],
+async fn spawn_retsu(
+    runtime: &RetsuRuntime,
     database_url: &str,
     distributed_cache_url: &str,
-    environment: &[(&str, String)],
+    process: RetsuProcessSpec<'_>,
     log_directory: &Path,
-) -> anyhow::Result<ManagedProcess> {
-    let log_path = log_directory.join(format!("{name}-{}.log", Uuid::new_v4().simple()));
-    let stdout = File::create(&log_path)
-        .with_context(|| format!("failed to create process log {}", log_path.display()))?;
-    let stderr = stdout
-        .try_clone()
-        .with_context(|| format!("failed to clone process log {}", log_path.display()))?;
+) -> anyhow::Result<(ManagedRetsu, String)> {
+    let RetsuProcessSpec {
+        name,
+        arguments,
+        container_port,
+        port_environment_variable,
+        environment,
+    } = process;
 
-    let mut command = base_command(database_url, Some(distributed_cache_url));
-    command.args(arguments);
+    match runtime {
+        RetsuRuntime::Local => {
+            let host_port = unused_port()?;
+            let log_path = log_directory.join(format!("{name}-{}.log", Uuid::new_v4().simple()));
+            let stdout = File::create(&log_path)
+                .with_context(|| format!("failed to create process log {}", log_path.display()))?;
+            let stderr = stdout
+                .try_clone()
+                .with_context(|| format!("failed to clone process log {}", log_path.display()))?;
 
-    for (key, value) in environment {
-        command.env(key, value);
+            let mut command = base_command(database_url, Some(distributed_cache_url));
+            command
+                .args(arguments)
+                .env(port_environment_variable, host_port.to_string());
+
+            for (key, value) in environment {
+                command.env(key, value);
+            }
+
+            let child = command
+                .stdout(Stdio::from(stdout))
+                .stderr(Stdio::from(stderr))
+                .spawn()
+                .with_context(|| format!("failed to start `{name}`"))?;
+
+            Ok((
+                ManagedRetsu::Process(ManagedProcess {
+                    name: name.to_owned(),
+                    child,
+                    log_path,
+                }),
+                format!("http://127.0.0.1:{host_port}"),
+            ))
+        }
+        RetsuRuntime::Image {
+            name: image_name,
+            tag,
+            network,
+        } => {
+            let mut request = GenericImage::new(image_name.clone(), tag.clone())
+                .with_exposed_port(container_port.tcp())
+                .with_cmd(arguments.iter().copied())
+                .with_network(network)
+                .with_env_var("RETSU_ENVIRONMENT", "test")
+                .with_env_var("RETSU_DATABASE__URL", database_url)
+                .with_env_var("RETSU_CACHE__DISTRIBUTED__URL", distributed_cache_url)
+                .with_env_var("RETSU_LOGGING__FILTER", "info")
+                .with_env_var("RETSU_LOGGING__FORMAT", "json")
+                .with_env_var("RETSU_TELEMETRY__TRACES__ENABLED", "false")
+                .with_env_var("RETSU_WORKER__SHUTDOWN_TIMEOUT_SECONDS", "2")
+                .with_env_var(port_environment_variable, container_port.to_string());
+
+            for (key, value) in environment {
+                request = request.with_env_var(*key, value);
+            }
+
+            let container = request
+                .start()
+                .await
+                .with_context(|| format!("failed to start `{name}` from RETSU_TEST_IMAGE"))?;
+            let host = container
+                .get_host()
+                .await
+                .with_context(|| format!("failed to resolve the `{name}` container host"))?;
+            let host_port = container
+                .get_host_port_ipv4(container_port)
+                .await
+                .with_context(|| format!("failed to resolve the `{name}` container port"))?;
+
+            Ok((
+                ManagedRetsu::Container {
+                    name: name.to_owned(),
+                    container: Box::new(container),
+                },
+                format!("http://{host}:{host_port}"),
+            ))
+        }
     }
-
-    let child = command
-        .stdout(Stdio::from(stdout))
-        .stderr(Stdio::from(stderr))
-        .spawn()
-        .with_context(|| format!("failed to start `{name}`"))?;
-
-    Ok(ManagedProcess {
-        name: name.to_owned(),
-        child,
-        log_path,
-    })
 }
 
 fn base_command(database_url: &str, distributed_cache_url: Option<&str>) -> Command {
@@ -641,20 +839,16 @@ fn unused_port() -> anyhow::Result<u16> {
 async fn wait_for_http(
     client: &Client,
     url: &str,
-    process: &mut ManagedProcess,
+    process: &mut ManagedRetsu,
 ) -> anyhow::Result<()> {
     let deadline = Instant::now() + PROCESS_START_TIMEOUT;
 
     loop {
-        if let Some(status) = process
-            .child
-            .try_wait()
-            .with_context(|| format!("failed to inspect `{}`", process.name))?
-        {
+        if let Some(status) = process.exit_status().await? {
             anyhow::bail!(
                 "`{}` exited with {status} before becoming ready\n{}",
-                process.name,
-                process.logs()
+                process.name(),
+                process.logs().await
             );
         }
 
@@ -667,9 +861,9 @@ async fn wait_for_http(
         if Instant::now() >= deadline {
             anyhow::bail!(
                 "`{}` did not become ready at {url}; last error: {}\n{}",
-                process.name,
+                process.name(),
                 last_error,
-                process.logs()
+                process.logs().await
             );
         }
 
@@ -713,6 +907,70 @@ async fn expect_body(
     );
 
     Ok(body)
+}
+
+enum ManagedRetsu {
+    Process(ManagedProcess),
+    Container {
+        name: String,
+        container: Box<ContainerAsync<GenericImage>>,
+    },
+}
+
+impl ManagedRetsu {
+    fn name(&self) -> &str {
+        match self {
+            Self::Process(process) => &process.name,
+            Self::Container { name, .. } => name,
+        }
+    }
+
+    async fn exit_status(&mut self) -> anyhow::Result<Option<String>> {
+        match self {
+            Self::Process(process) => process
+                .child
+                .try_wait()
+                .with_context(|| format!("failed to inspect `{}`", process.name))
+                .map(|status| status.map(|status| status.to_string())),
+            Self::Container { name, container } => container
+                .exit_code()
+                .await
+                .with_context(|| format!("failed to inspect `{name}`"))
+                .map(|status| status.map(|status| status.to_string())),
+        }
+    }
+
+    async fn stop(&mut self) -> anyhow::Result<()> {
+        match self {
+            Self::Process(process) => process.stop(),
+            Self::Container { name, container } => container
+                .stop_with_timeout(Some(5))
+                .await
+                .with_context(|| format!("failed to stop `{name}`")),
+        }
+    }
+
+    async fn logs(&self) -> String {
+        match self {
+            Self::Process(process) => process.logs(),
+            Self::Container { container, .. } => container_logs(container).await,
+        }
+    }
+}
+
+async fn container_logs(container: &ContainerAsync<GenericImage>) -> String {
+    let stdout = container
+        .stdout_to_vec()
+        .await
+        .map(|output| String::from_utf8_lossy(&output).into_owned())
+        .unwrap_or_else(|error| format!("failed to read container stdout: {error}"));
+    let stderr = container
+        .stderr_to_vec()
+        .await
+        .map(|output| String::from_utf8_lossy(&output).into_owned())
+        .unwrap_or_else(|error| format!("failed to read container stderr: {error}"));
+
+    format!("stdout:\n{stdout}\nstderr:\n{stderr}")
 }
 
 struct ManagedProcess {

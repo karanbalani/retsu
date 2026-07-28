@@ -51,7 +51,7 @@ async fn state_collector_leadership_fails_over_between_processes() -> anyhow::Re
         "the standby collector must not publish a snapshot while leadership is held"
     );
 
-    system.stop_worker(&leader)?;
+    system.stop_worker(&leader).await?;
 
     let standby_metrics = eventually(
         "the standby collector to acquire leadership",

@@ -47,8 +47,12 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Run container image integration test
-        run: bash tests/container-runtime.sh "${TEST_IMAGE}"
+      - name: Run integration tests against the image
+        env:
+          RETSU_TEST_IMAGE: ${{ env.TEST_IMAGE }}
+        run: >-
+          cargo test --locked --test integration --all-features
+          -- --test-threads=1
 
       - name: Remove local test image
         if: always()
