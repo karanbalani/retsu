@@ -53,27 +53,8 @@ release-build:
 
 # Create and push an annotated calendar-version release tag.
 [arg('version', pattern='[1-9][0-9]{3}\.(?:[1-9]|1[0-2])\.(?:0|[1-9][0-9]*)')]
-[confirm("Create and push the requested calendar release tag?")]
 release-tag version:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    version="{{ version }}"
-    tag="v${version}"
-    [[ -z "$(git status --porcelain --untracked-files=all)" ]] \
-        || { echo "The worktree must be clean, including untracked files." >&2; exit 1; }
-    branch="$(git symbolic-ref --quiet --short HEAD)" \
-        || { echo "Releases must be created from the main branch." >&2; exit 1; }
-    [[ "${branch}" == "main" ]] \
-        || { echo "Releases must be created from main; current branch is ${branch}." >&2; exit 1; }
-    git fetch --prune --tags origin "refs/heads/main:refs/remotes/origin/main"
-    [[ "$(git rev-parse HEAD)" == "$(git rev-parse refs/remotes/origin/main)" ]] \
-        || { echo "Local HEAD must exactly match origin/main." >&2; exit 1; }
-    ! git show-ref --verify --quiet "refs/tags/${tag}" \
-        || { echo "Tag ${tag} already exists." >&2; exit 1; }
-    git tag --annotate "${tag}" --message "Release ${version}"
-    git push origin "refs/tags/${tag}:refs/tags/${tag}"
-    echo "Published tag: ghcr.io/karanbalani/retsu:${version}"
-    echo "The calendar-version tag starts the container release workflow; no latest tag is published."
+    ./scripts/release-tag.sh "{{ version }}"
 
 # Type-check all targets and features.
 check:
