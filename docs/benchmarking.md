@@ -7,8 +7,8 @@ hardware score.
 
 ## Comparison contract
 
-- Run the base, candidate, and same-code control measurements in the same
-  GitHub Actions job.
+- Run two independent base, candidate, and same-code control measurement pairs
+  in the same GitHub Actions job.
 - Pin the runner image, Rust toolchain, dependency lockfile, and PostgreSQL
   image.
 - Exclude compilation, migrations, fixture creation, and warm-up from measured
@@ -58,8 +58,17 @@ Concurrent rows include operations per second in addition to batch latency. The
 workflow is informational: a reported regression does not fail the job.
 
 GitHub-hosted virtual machines introduce measurement noise. Base and candidate
-results therefore remain paired in one job. After the candidate, the workflow
-measures the base commit again. A material difference between the two base
-measurements marks the comparison as unstable runner drift instead of
-attributing that difference to the candidate. The report should still be rerun
-when an expected improvement is close to the noise threshold.
+results therefore remain paired in one job. Each pair measures the base again
+after the candidate. A material difference between the initial and control base
+measurements marks the combined result as unstable runner drift instead of
+attributing that difference to the candidate.
+
+An improvement or regression is reported only when both pairs have stable
+controls and agree on the direction. Stable pairs that disagree, or where
+either result crosses the practical noise threshold, are inconclusive. This
+agreement rule reduces the chance that one unusually fast or slow hosted-runner
+interval is mistaken for an application change.
+
+Standard mode should normally complete within 20 minutes when the build cache
+is warm. Thorough mode has a 60-minute job limit. The report should still be
+rerun when an expected improvement is close to the noise threshold.
