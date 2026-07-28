@@ -1,10 +1,9 @@
 use thiserror::Error;
 use tracing::field;
-use uuid::Uuid;
 
 use crate::modules::queue::{
     application::repository::{CreateQueueOutcome, QueueRepository},
-    domain::{Queue, QueueNameError, QueueSettingsError, QueueValidationError},
+    domain::{Queue, QueueDetails, QueueNameError, QueueSettingsError, QueueValidationError},
 };
 
 #[derive(Debug)]
@@ -31,42 +30,11 @@ impl CreateQueueCommand {
     }
 }
 
-#[derive(Debug)]
-pub(in crate::modules::queue) struct CreatedQueue {
-    id: Uuid,
-    name: String,
-    visibility_timeout_seconds: u32,
-    max_delivery_attempts: u16,
-    default_message_ttl_seconds: u32,
-}
-
-impl CreatedQueue {
-    pub(in crate::modules::queue) fn id(&self) -> Uuid {
-        self.id
-    }
-
-    pub(in crate::modules::queue) fn name(&self) -> &str {
-        &self.name
-    }
-
-    pub(in crate::modules::queue) fn visibility_timeout_seconds(&self) -> u32 {
-        self.visibility_timeout_seconds
-    }
-
-    pub(in crate::modules::queue) fn max_delivery_attempts(&self) -> u16 {
-        self.max_delivery_attempts
-    }
-
-    pub(in crate::modules::queue) fn default_message_ttl_seconds(&self) -> u32 {
-        self.default_message_ttl_seconds
-    }
-}
-
 #[tracing::instrument(name = "queue.create", skip_all, fields(queue.name = %command.name, queue.id = field::Empty), err)]
 pub(in crate::modules::queue) async fn execute<R>(
     repository: &R,
     command: CreateQueueCommand,
-) -> Result<CreatedQueue, CreateQueueError>
+) -> Result<QueueDetails, CreateQueueError>
 where
     R: QueueRepository,
 {
@@ -89,13 +57,7 @@ where
 
     tracing::Span::current().record("queue.id", field::display(queue.id()));
 
-    Ok(CreatedQueue {
-        id: queue.id(),
-        name: queue.name().to_owned(),
-        visibility_timeout_seconds: queue.visibility_timeout_seconds(),
-        max_delivery_attempts: queue.max_delivery_attempts(),
-        default_message_ttl_seconds: queue.default_message_ttl_seconds(),
-    })
+    Ok(queue.details())
 }
 
 #[derive(Debug, Error)]
@@ -121,7 +83,3 @@ impl From<QueueValidationError> for CreateQueueError {
         }
     }
 }
-
-#[cfg(test)]
-#[path = "../tests/application_create_queue.rs"]
-mod tests;

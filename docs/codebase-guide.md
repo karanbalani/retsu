@@ -39,7 +39,6 @@ flowchart TD
     Context --> Pool["PostgreSQL connection pool"]
     Context --> Metrics["Metrics"]
     Context --> Queue["QueueModule"]
-    Queue --> Cache["Queue-name cache"]
     Context --> API["API handlers"]
     Context --> Worker["Selected worker"]
     API --> Queue
@@ -47,25 +46,34 @@ flowchart TD
     Queue --> Operation["Application operation"]
     Pool --> Postgres["PostgresQueueRepository"]
     Metrics --> Queue
-    Queue --> Postgres
+    Queue --> L1["L1QueueRepository (in memory)"]
+    L1 --> L2["L2QueueRepository (distributed)"]
+    L2 --> Postgres
+    Queue --> StateCollector["PostgresQueueStateCollector"]
+    StateCollector --> Pool
     Operation --> Contract["Repository trait"]
+    L1 -. "implements" .-> Contract
+    L2 -. "implements" .-> Contract
     Postgres -. "implements" .-> Contract
 ```
 
 The API stores a cloned context in Actix's `web::Data`. A handler receives that value and calls `context.queue_module()`. The worker runner also clones the context for each task it starts.
 
-Inside the queue module, a repository trait lists the storage operations that
-application code may use. Examples are `QueueRepository` and
-`MessageRepository`. Queue-name reads use a cached repository that decorates
-`PostgresQueueRepository`; message operations continue to use PostgreSQL
-directly. Unit tests can pass small replacements that return controlled
-results. This keeps database and cache details out of the queue rules and makes
-those rules quick to test.
+Inside the queue module, `QueueRepository` lists the queue operations used by
+the API and maintenance workers. The repository is composed as the in-memory L1
+decorator around the distributed L2 decorator around PostgreSQL. Each layer
+implements the complete `QueueRepository` contract. L1 and L2 handle the
+operations they cache and delegate every other operation to the next
+repository.
 
-There is no runtime choice between repository implementations. The queue module
-creates the PostgreSQL repository and Moka cache directly. The repository and
-cache traits form clear boundaries for application code, composition, and
-tests; they are not a runtime plugin system.
+State-metrics collection is separate because it is worker coordination, not a
+cacheable queue operation. `PostgresQueueStateCollector` acquires the PostgreSQL
+advisory lock and reads state through the same dedicated connection. Its lease
+does not pass through L1, L2, or `QueueRepository`.
+
+There is no runtime plugin system. The queue module constructs PostgreSQL,
+Moka, and the Redis-protocol client directly, then composes the repository
+decorators.
 
 ## How an application module is arranged
 
@@ -76,7 +84,7 @@ src/modules/queue/
 ├── api/             HTTP request and response handling
 ├── application/     Operations such as create, enqueue, and acknowledge
 ├── domain/          Queue and message rules
-├── infrastructure/  PostgreSQL queries
+├── infrastructure/  PostgreSQL and cache implementations
 ├── worker/          Queue background jobs
 └── mod.rs           The module's public entry point and wiring
 ```
@@ -86,7 +94,7 @@ src/modules/queue/
 | API | Routes, request conversion, response conversion, and HTTP error mapping |
 | Application | One operation, its input, result, errors, and repository needs |
 | Domain | Rules and values that describe valid queues and messages |
-| Infrastructure | PostgreSQL implementation of the repository traits |
+| Infrastructure | L1, L2, and PostgreSQL implementations of `QueueRepository`, plus PostgreSQL-backed worker coordination |
 | Worker | Loops that run queue maintenance operations |
 | Module entry point | Connects the parts and exposes a small API to the process |
 
@@ -112,8 +120,11 @@ A `POST /v1/queues` request passes through these steps:
 4. `QueueModule` calls the create-queue application operation.
 5. The operation creates a domain `Queue`, which checks its name and settings.
 6. The operation calls the `QueueRepository` boundary.
-7. The cached repository asks `PostgresQueueRepository` to store the queue.
-8. A successful database creation populates the local queue-name cache.
+7. The in-memory decorator delegates to the distributed decorator, which asks
+   `PostgresQueueRepository` to store the queue.
+8. A successful database creation returns through the decorators, writing
+   complete details to the distributed cache and then the immutable name to the
+   local cache.
 9. The handler converts the result or error into an HTTP response.
 
 Workers enter at step 4 instead of through an HTTP handler. They call an application operation through the same `QueueModule`, so API and worker behavior use the same queue rules and database implementation.
@@ -125,7 +136,8 @@ The current structure makes these choices explicit:
 - Dependencies are visible in constructors and function arguments. A contributor can follow the wiring without learning a framework.
 - Code for one feature stays together. Queue routes, rules, storage, and workers do not spread across top-level folders.
 - Domain and application code do not contain SQL or HTTP response handling.
-- Repository traits let application operations use small fakes in unit tests.
+- One repository contract represents the complete queue module rather than
+  mirroring database tables.
 - Process code depends on the module catalog instead of each module's internal files.
 - One program shares configuration and monitoring setup, while independently started workers can be deployed or restarted separately.
 - Rust visibility rules protect module boundaries during compilation.
@@ -134,9 +146,9 @@ The tradeoff is some manual wiring in `ApplicationContext`, module definitions, 
 
 ## How tests are separated
 
-Fast unit tests live in `src/tests/` and `src/modules/queue/tests/`. They use
-small replacements at repository boundaries and do not require Docker or a
-running database. Run them with:
+Fast unit tests live in `src/tests/` and `src/modules/queue/tests/`. They cover
+domain rules, configuration, HTTP mapping, metrics, and other behavior that
+does not require a repository. Run them with:
 
 ```bash
 just test
@@ -153,7 +165,8 @@ just integration-test
 ```
 
 Docker must be running, but the local Compose stack does not need to be started.
-Testcontainers removes each PostgreSQL container when its scenario finishes.
+Testcontainers removes each PostgreSQL and Dragonfly container when its
+scenario finishes.
 
 Pull requests run the integration workflow only when the
 `run-integration-tests` label is added. Later commits do not rerun it
@@ -169,7 +182,8 @@ For a new queue operation:
 3. Add the required repository method and PostgreSQL implementation.
 4. Add a `QueueModule` method.
 5. Connect it to an API handler, a worker, or both.
-6. Test rules with a fake repository and protect cross-process behavior in the integration suite.
+6. Test domain rules directly and cover repository/application behavior through
+   the integration suite.
 
 For another cached value family, define its typed key and value near the owning
 module, add a validated cache policy, and compose the generic cache boundary at

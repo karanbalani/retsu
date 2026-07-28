@@ -16,8 +16,23 @@ fn assert_invalid(mutate: impl FnOnce(&mut AppConfiguration)) {
 fn accepts_all_validation_boundaries() {
     let mut configuration = AppConfiguration::default();
     configuration.http.port = 1;
-    configuration.cache.queue_names.max_entries = 1;
-    configuration.cache.queue_names.max_capacity_bytes = 1;
+    configuration
+        .cache
+        .in_memory
+        .regions
+        .queue_names
+        .max_entries = 1;
+    configuration
+        .cache
+        .in_memory
+        .regions
+        .queue_names
+        .max_capacity_bytes = 1;
+    configuration
+        .cache
+        .distributed
+        .connection_timeout_milliseconds = 1;
+    configuration.cache.distributed.command_timeout_milliseconds = 1;
     configuration.telemetry.metrics.max_queues = 1;
     configuration.telemetry.traces.timeout_seconds = 1;
     configuration.database.max_connections = 1;
@@ -31,8 +46,23 @@ fn accepts_all_validation_boundaries() {
 
     configuration.telemetry.metrics.max_queues = 100_000;
     configuration.telemetry.traces.timeout_seconds = 60;
-    configuration.cache.queue_names.max_entries = 1_000_000;
-    configuration.cache.queue_names.max_capacity_bytes = 4_294_967_295;
+    configuration
+        .cache
+        .in_memory
+        .regions
+        .queue_names
+        .max_entries = 1_000_000;
+    configuration
+        .cache
+        .in_memory
+        .regions
+        .queue_names
+        .max_capacity_bytes = 4_294_967_295;
+    configuration
+        .cache
+        .distributed
+        .connection_timeout_milliseconds = 10_000;
+    configuration.cache.distributed.command_timeout_milliseconds = 10_000;
     configuration.database.acquire_timeout_seconds = 60;
     configuration.worker.shutdown_timeout_seconds = 300;
 
@@ -45,11 +75,49 @@ fn accepts_all_validation_boundaries() {
 fn rejects_values_outside_the_validation_contract() {
     assert_invalid(|configuration| configuration.http.port = 0);
     assert_invalid(|configuration| configuration.logging.filter.clear());
-    assert_invalid(|configuration| configuration.cache.queue_names.max_entries = 0);
-    assert_invalid(|configuration| configuration.cache.queue_names.max_entries = 1_000_001);
-    assert_invalid(|configuration| configuration.cache.queue_names.max_capacity_bytes = 0);
     assert_invalid(|configuration| {
-        configuration.cache.queue_names.max_capacity_bytes = 4_294_967_296;
+        configuration
+            .cache
+            .in_memory
+            .regions
+            .queue_names
+            .max_entries = 0;
+    });
+    assert_invalid(|configuration| {
+        configuration
+            .cache
+            .in_memory
+            .regions
+            .queue_names
+            .max_entries = 1_000_001;
+    });
+    assert_invalid(|configuration| {
+        configuration
+            .cache
+            .in_memory
+            .regions
+            .queue_names
+            .max_capacity_bytes = 0;
+    });
+    assert_invalid(|configuration| {
+        configuration
+            .cache
+            .in_memory
+            .regions
+            .queue_names
+            .max_capacity_bytes = 4_294_967_296;
+    });
+    assert_invalid(|configuration| {
+        configuration.cache.distributed.url = "not a URL".to_owned();
+    });
+    assert_invalid(|configuration| {
+        configuration
+            .cache
+            .distributed
+            .connection_timeout_milliseconds = 0;
+    });
+    assert_invalid(|configuration| {
+        configuration.cache.distributed.command_timeout_milliseconds = 10_001;
     });
     assert_invalid(|configuration| configuration.telemetry.metrics.max_queues = 0);
     assert_invalid(|configuration| configuration.telemetry.metrics.max_queues = 100_001);

@@ -3,7 +3,7 @@ use tracing::field;
 use uuid::Uuid;
 
 use super::super::{
-    application::repository::{DequeueMessageOutcome, MessageRepository},
+    application::repository::{DequeueMessageOutcome, QueueRepository},
     domain::MessagePriority,
 };
 
@@ -65,7 +65,7 @@ pub(in crate::modules::queue) async fn execute<R>(
     command: DequeueMessageCommand,
 ) -> Result<Option<DequeuedMessage>, DequeueMessageError>
 where
-    R: MessageRepository,
+    R: QueueRepository,
 {
     let DequeueMessageCommand { queue_id } = command;
     let receipt_handle = Uuid::new_v4();
@@ -107,7 +107,3 @@ pub(in crate::modules::queue) enum DequeueMessageError {
     #[error("failed to dequeue a message")]
     Persistence(#[source] anyhow::Error),
 }
-
-#[cfg(test)]
-#[path = "../tests/application_dequeue_message.rs"]
-mod tests;

@@ -2,7 +2,7 @@
 
 Use this guide to run Retsu on your computer.
 
-Retsu is still being built. You can create queues, add messages, get the next
+Retsu is still being built. You can create and configure queues, add messages, get the next
 waiting message, and mark it as complete. Timed-out messages can be tried again
 when the worker is running.
 
@@ -28,7 +28,7 @@ when the worker is running.
    just doctor
    ```
 
-3. Start PostgreSQL and prepare the database:
+3. Start PostgreSQL and Dragonfly, then prepare the database:
 
    ```bash
    just setup
@@ -88,7 +88,7 @@ Start a state metrics collector in another terminal. One collector is enough
 for local development. Give it another management port:
 
 ```bash
-RETSU_WORKER__MANAGEMENT__PORT=24251 \
+RETSU_WORKER__MANAGEMENT__PORT=24252 \
   just worker queue state-metrics-collector
 ```
 
@@ -117,7 +117,7 @@ just api-observed
 just worker-observed queue visibility-timeout-processor
 RETSU_WORKER__MANAGEMENT__PORT=24250 \
   just worker-observed queue expired-message-cleaner
-RETSU_WORKER__MANAGEMENT__PORT=24251 \
+RETSU_WORKER__MANAGEMENT__PORT=24252 \
   just worker-observed queue state-metrics-collector
 ```
 

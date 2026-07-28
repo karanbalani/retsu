@@ -1,7 +1,7 @@
 use thiserror::Error;
 use tracing::field;
 
-use super::repository::{ExpiredMessagesCleanupSummary, MessageRepository};
+use super::repository::{ExpiredMessagesCleanupSummary, QueueRepository};
 
 #[tracing::instrument(
     name = "queue.expiration.process",
@@ -21,7 +21,7 @@ pub(in crate::modules::queue) async fn execute<R>(
     batch_size: u32,
 ) -> Result<ExpiredMessagesCleanupSummary, ProcessExpiredMessagesError>
 where
-    R: MessageRepository,
+    R: QueueRepository,
 {
     let summary = repository
         .process_expired_messages(batch_size)

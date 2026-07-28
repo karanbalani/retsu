@@ -5,15 +5,15 @@ mod enqueue_message;
 mod process_expired_messages;
 mod process_timed_out_messages;
 mod repository;
+mod update_queue;
 
 pub(in crate::modules::queue) use create_queue::{
-    CreateQueueCommand, CreateQueueError, CreatedQueue, execute as execute_create_queue,
+    CreateQueueCommand, CreateQueueError, execute as execute_create_queue,
 };
 
 pub(in crate::modules::queue) use repository::{
     AcknowledgeMessageOutcome, CreateQueueOutcome, DequeueMessageOutcome, EnqueueMessageOutcome,
-    ExpiredMessagesCleanupSummary, MessageRepository, QueueExpiredMessagesCleanupSummary,
-    QueuePriorityStateSnapshot, QueueRepository, QueueStateRepository,
+    ExpiredMessagesCleanupSummary, QueueExpiredMessagesCleanupSummary, QueueRepository,
     QueueTimeoutProcessingSummary, TimeoutProcessingSummary,
 };
 
@@ -37,6 +37,6 @@ pub(in crate::modules::queue) use process_expired_messages::{
     ProcessExpiredMessagesError, execute as execute_process_expired_messages,
 };
 
-#[cfg(test)]
-#[path = "../tests/application_lifecycle.rs"]
-mod lifecycle_tests;
+pub(in crate::modules::queue) use update_queue::{
+    UpdateQueueCommand, UpdateQueueError, execute as execute_update_queue,
+};

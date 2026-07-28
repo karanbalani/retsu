@@ -38,6 +38,25 @@ fn creates_queues_with_uuid_v7_defaults_and_supported_boundaries() {
 }
 
 #[test]
+fn exposes_serializable_queue_details() {
+    let queue = Queue::new("email-delivery".to_owned(), Some(45), Some(7), Some(300))
+        .expect("valid queue should be created");
+
+    let details = queue.details();
+    let serialized =
+        serde_json::to_string(&details).expect("queue details should serialize as JSON");
+    let deserialized =
+        serde_json::from_str(&serialized).expect("queue details JSON should deserialize");
+
+    assert_eq!(details.id(), queue.id());
+    assert_eq!(details.name(), queue.name());
+    assert_eq!(details.visibility_timeout_seconds, 45);
+    assert_eq!(details.max_delivery_attempts, 7);
+    assert_eq!(details.default_message_ttl_seconds, 300);
+    assert_eq!(details, deserialized);
+}
+
+#[test]
 fn rejects_noncanonical_queue_names() {
     let invalid_names = [
         String::new(),

@@ -2,9 +2,10 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::super::application::{
-    AcknowledgeMessageCommand, CreateQueueCommand, CreatedQueue, DequeueMessageCommand,
-    DequeuedMessage, EnqueueMessageCommand, EnqueuedMessage,
+    AcknowledgeMessageCommand, CreateQueueCommand, DequeueMessageCommand, DequeuedMessage,
+    EnqueueMessageCommand, EnqueuedMessage, UpdateQueueCommand,
 };
+use super::super::domain::QueueDetails;
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -27,7 +28,7 @@ impl CreateQueueRequest {
 }
 
 #[derive(Debug, Serialize)]
-pub(super) struct CreateQueueResponse {
+pub(super) struct QueueResponse {
     id: Uuid,
     name: String,
     visibility_timeout_seconds: u32,
@@ -35,8 +36,8 @@ pub(super) struct CreateQueueResponse {
     default_message_ttl_seconds: u32,
 }
 
-impl From<CreatedQueue> for CreateQueueResponse {
-    fn from(queue: CreatedQueue) -> Self {
+impl From<QueueDetails> for QueueResponse {
+    fn from(queue: QueueDetails) -> Self {
         Self {
             id: queue.id(),
             name: queue.name().to_owned(),
@@ -59,6 +60,25 @@ impl QueuePath {
 
     pub(super) fn into_dequeue_command(self) -> DequeueMessageCommand {
         DequeueMessageCommand::new(self.queue_id)
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct UpdateQueueRequest {
+    visibility_timeout_seconds: Option<u32>,
+    max_delivery_attempts: Option<u16>,
+    default_message_ttl_seconds: Option<u32>,
+}
+
+impl UpdateQueueRequest {
+    pub(super) fn into_command(self, queue_id: Uuid) -> UpdateQueueCommand {
+        UpdateQueueCommand::new(
+            queue_id,
+            self.visibility_timeout_seconds,
+            self.max_delivery_attempts,
+            self.default_message_ttl_seconds,
+        )
     }
 }
 

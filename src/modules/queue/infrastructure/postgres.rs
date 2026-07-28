@@ -5,15 +5,14 @@ use crate::{database, observability::DatabaseMetrics};
 use super::super::{
     application::{
         AcknowledgeMessageOutcome, CreateQueueOutcome, DequeueMessageOutcome,
-        EnqueueMessageOutcome, ExpiredMessagesCleanupSummary, MessageRepository,
-        QueueExpiredMessagesCleanupSummary, QueuePriorityStateSnapshot, QueueRepository,
-        QueueStateRepository, QueueTimeoutProcessingSummary, TimeoutProcessingSummary,
+        EnqueueMessageOutcome, ExpiredMessagesCleanupSummary, QueueExpiredMessagesCleanupSummary,
+        QueueRepository, QueueTimeoutProcessingSummary, TimeoutProcessingSummary,
     },
-    domain::{Message, MessagePriority, Queue},
+    domain::{Message, MessagePriority, Queue, QueueConfigurationUpdate, QueueDetails},
 };
 
 use anyhow::{Context as _, anyhow};
-use sqlx::{PgPool, Postgres, pool::PoolConnection};
+use sqlx::PgPool;
 use tracing::{Span, field};
 use uuid::Uuid;
 
@@ -21,10 +20,6 @@ use uuid::Uuid;
 pub(in crate::modules::queue) struct PostgresQueueRepository {
     pool: PgPool,
     metrics: DatabaseMetrics,
-}
-
-pub(in crate::modules::queue) struct QueueStateCollectorLease {
-    connection: PoolConnection<Postgres>,
 }
 
 impl PostgresQueueRepository {
@@ -64,13 +59,29 @@ struct ProcessExpiredMessagesRow {
 }
 
 #[derive(sqlx::FromRow)]
-struct QueuePriorityStateRow {
-    queue_name: String,
-    priority: i16,
-    ready: i64,
-    in_flight: i64,
-    oldest_ready_age_seconds: f64,
-    oldest_in_flight_age_seconds: f64,
+struct QueueDetailsRow {
+    id: Uuid,
+    name: String,
+    visibility_timeout_seconds: i32,
+    max_delivery_attempts: i16,
+    default_message_ttl_seconds: i32,
+}
+
+fn queue_details_from_row(row: QueueDetailsRow) -> Result<QueueDetails, anyhow::Error> {
+    let visibility_timeout_seconds = u32::try_from(row.visibility_timeout_seconds)
+        .context("stored queue has a negative visibility timeout")?;
+    let max_delivery_attempts = u16::try_from(row.max_delivery_attempts)
+        .context("stored queue has a negative delivery attempt limit")?;
+    let default_message_ttl_seconds = u32::try_from(row.default_message_ttl_seconds)
+        .context("stored queue has a negative default message TTL")?;
+
+    Ok(QueueDetails::new(
+        row.id,
+        row.name,
+        visibility_timeout_seconds,
+        max_delivery_attempts,
+        default_message_ttl_seconds,
+    ))
 }
 
 impl QueueRepository for PostgresQueueRepository {
@@ -174,9 +185,125 @@ impl QueueRepository for PostgresQueueRepository {
 
         Ok(result?)
     }
-}
 
-impl MessageRepository for PostgresQueueRepository {
+    #[tracing::instrument(
+        name = "db.operation",
+        skip_all,
+        fields(
+            db.system.name = "postgresql",
+            db.operation.name = "queue.read_details",
+            db.pool.acquire.duration = field::Empty,
+            error.type = field::Empty,
+            otel.status_code = field::Empty,
+        ),
+        err
+    )]
+    async fn queue_details(&self, queue_id: Uuid) -> Result<Option<QueueDetails>, anyhow::Error> {
+        let mut connection = database::acquire(&self.pool, &self.metrics).await?;
+        let started = Instant::now();
+
+        let result = sqlx::query_as::<_, QueueDetailsRow>(
+            r#"
+            SELECT
+                id,
+                name,
+                visibility_timeout_seconds,
+                max_delivery_attempts,
+                default_message_ttl_seconds
+            FROM queue
+            WHERE id = $1
+            "#,
+        )
+        .bind(queue_id)
+        .fetch_optional(&mut *connection)
+        .await;
+
+        self.metrics
+            .operation_finished("queue.read_details", started.elapsed(), result.is_ok());
+
+        if let Err(error) = &result {
+            Span::current().record("error.type", database::error_type(error));
+            Span::current().record("otel.status_code", "ERROR");
+        }
+
+        result?.map(queue_details_from_row).transpose()
+    }
+
+    #[tracing::instrument(
+        name = "db.operation",
+        skip_all,
+        fields(
+            db.system.name = "postgresql",
+            db.operation.name = "queue.update",
+            db.pool.acquire.duration = field::Empty,
+            error.type = field::Empty,
+            otel.status_code = field::Empty,
+        ),
+        err
+    )]
+    async fn update_queue(
+        &self,
+        queue_id: Uuid,
+        configuration: &QueueConfigurationUpdate,
+    ) -> Result<Option<QueueDetails>, anyhow::Error> {
+        let visibility_timeout_seconds = configuration.visibility_timeout_seconds().map(|value| {
+            i32::try_from(value).expect("validated visibility timeout fits PostgreSQL INTEGER")
+        });
+        let max_delivery_attempts = configuration.max_delivery_attempts().map(|value| {
+            i16::try_from(value).expect("validated delivery attempt limit fits PostgreSQL SMALLINT")
+        });
+        let default_message_ttl_seconds =
+            configuration.default_message_ttl_seconds().map(|value| {
+                i32::try_from(value).expect("validated message TTL fits PostgreSQL INTEGER")
+            });
+
+        let mut connection = database::acquire(&self.pool, &self.metrics).await?;
+        let started = Instant::now();
+
+        let result = sqlx::query_as::<_, QueueDetailsRow>(
+            r#"
+            UPDATE queue
+            SET
+                visibility_timeout_seconds = COALESCE(
+                    $2,
+                    visibility_timeout_seconds
+                ),
+                max_delivery_attempts = COALESCE(
+                    $3,
+                    max_delivery_attempts
+                ),
+                default_message_ttl_seconds = COALESCE(
+                    $4,
+                    default_message_ttl_seconds
+                ),
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = $1
+            RETURNING
+                id,
+                name,
+                visibility_timeout_seconds,
+                max_delivery_attempts,
+                default_message_ttl_seconds
+            "#,
+        )
+        .bind(queue_id)
+        .bind(visibility_timeout_seconds)
+        .bind(max_delivery_attempts)
+        .bind(default_message_ttl_seconds)
+        .fetch_optional(&mut *connection)
+        .await;
+
+        self.metrics
+            .operation_finished("queue.update", started.elapsed(), result.is_ok());
+
+        if let Err(error) = &result {
+            Span::current().record("error.type", database::error_type(error));
+            Span::current().record("otel.status_code", "ERROR");
+        }
+
+        result?.map(queue_details_from_row).transpose()
+    }
+
     #[tracing::instrument(
         name = "db.operation",
         skip_all,
@@ -709,232 +836,5 @@ impl MessageRepository for PostgresQueueRepository {
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(ExpiredMessagesCleanupSummary::new(per_queue))
-    }
-}
-
-impl QueueStateRepository for PostgresQueueRepository {
-    type CollectorLease = QueueStateCollectorLease;
-
-    #[tracing::instrument(
-        name = "db.operation",
-        skip_all,
-        fields(
-            db.system.name = "postgresql",
-            db.operation.name = "queue.try_acquire_state_collector_lease",
-            db.pool.acquire.duration = field::Empty,
-            error.type = field::Empty,
-            otel.status_code = field::Empty,
-        ),
-        err
-    )]
-    async fn try_acquire_collector_lease(
-        &self,
-    ) -> Result<Option<Self::CollectorLease>, anyhow::Error> {
-        const LOCK_NAMESPACE: i32 = 0x7265_7473; // "rets"
-        const LOCK_IDENTIFIER: i32 = 0x7153_7461; // "qSta"
-
-        let mut connection = database::acquire(&self.pool, &self.metrics).await?;
-        let started = Instant::now();
-
-        let result = sqlx::query_scalar::<_, bool>("SELECT pg_try_advisory_lock($1, $2)")
-            .bind(LOCK_NAMESPACE)
-            .bind(LOCK_IDENTIFIER)
-            .fetch_one(&mut *connection)
-            .await;
-
-        self.metrics.operation_finished(
-            "queue.try_acquire_state_collector_lease",
-            started.elapsed(),
-            result.is_ok(),
-        );
-
-        if let Err(error) = &result {
-            Span::current().record("error.type", database::error_type(error));
-            Span::current().record("otel.status_code", "ERROR");
-        }
-
-        if result? {
-            connection.close_on_drop();
-
-            Ok(Some(QueueStateCollectorLease { connection }))
-        } else {
-            Ok(None)
-        }
-    }
-
-    #[tracing::instrument(
-        name = "db.operation",
-        skip_all,
-        fields(
-            db.system.name = "postgresql",
-            db.operation.name = "queue.read_state_metrics",
-            db.pool.acquire.duration = field::Empty,
-            error.type = field::Empty,
-            otel.status_code = field::Empty,
-        ),
-        err
-    )]
-    async fn queue_state(
-        &self,
-        lease: &mut Self::CollectorLease,
-    ) -> Result<Vec<QueuePriorityStateSnapshot>, anyhow::Error> {
-        let started = Instant::now();
-
-        let result = sqlx::query_as::<_, QueuePriorityStateRow>(
-            r#"
-            WITH priorities(priority) AS (
-                VALUES
-                    (3::SMALLINT),
-                    (2::SMALLINT),
-                    (1::SMALLINT)
-            ),
-            physical_state AS (
-                SELECT
-                    state.queue_id,
-                    state.priority,
-                    SUM(state.ready_count)::BIGINT AS ready,
-                    SUM(state.in_flight_count)::BIGINT AS in_flight
-                FROM queue_priority_state_shard AS state
-                GROUP BY
-                    state.queue_id,
-                    state.priority
-            ),
-            expired_ready AS (
-                SELECT
-                    message.queue_id,
-                    message.priority,
-                    COUNT(*) AS count
-                FROM queue_message AS message
-                WHERE message.state = 'READY'
-                  AND message.expires_at <= CURRENT_TIMESTAMP
-                GROUP BY
-                    message.queue_id,
-                    message.priority
-            ),
-            timed_out_in_flight AS (
-                SELECT
-                    message.queue_id,
-                    message.priority,
-                    COUNT(*) AS count
-                FROM queue_message AS message
-                WHERE message.state = 'IN_FLIGHT'
-                  AND message.visibility_deadline <= CURRENT_TIMESTAMP
-                GROUP BY
-                    message.queue_id,
-                    message.priority
-            )
-            SELECT
-                queue.name AS queue_name,
-                priorities.priority,
-                COALESCE(
-                    physical_state.ready,
-                    0
-                ) - COALESCE(
-                    expired_ready.count,
-                    0
-                ) AS ready,
-                COALESCE(
-                    physical_state.in_flight,
-                    0
-                ) - COALESCE(
-                    timed_out_in_flight.count,
-                    0
-                ) AS in_flight,
-                COALESCE(
-                    EXTRACT(
-                        EPOCH FROM (
-                            CURRENT_TIMESTAMP
-                            - oldest_ready.enqueued_at
-                        )
-                    )::DOUBLE PRECISION,
-                    0.0
-                ) AS oldest_ready_age_seconds,
-                COALESCE(
-                    EXTRACT(
-                        EPOCH FROM (
-                            CURRENT_TIMESTAMP
-                            - oldest_in_flight.enqueued_at
-                        )
-                    )::DOUBLE PRECISION,
-                    0.0
-                ) AS oldest_in_flight_age_seconds
-            FROM queue
-            CROSS JOIN priorities
-            LEFT JOIN physical_state
-                ON physical_state.queue_id = queue.id
-               AND physical_state.priority = priorities.priority
-            LEFT JOIN expired_ready
-                ON expired_ready.queue_id = queue.id
-               AND expired_ready.priority = priorities.priority
-            LEFT JOIN timed_out_in_flight
-                ON timed_out_in_flight.queue_id = queue.id
-               AND timed_out_in_flight.priority = priorities.priority
-            LEFT JOIN LATERAL (
-                SELECT message.enqueued_at
-                FROM queue_message AS message
-                WHERE message.queue_id = queue.id
-                  AND message.priority = priorities.priority
-                  AND message.state = 'READY'
-                  AND message.expires_at > CURRENT_TIMESTAMP
-                ORDER BY message.enqueued_at
-                LIMIT 1
-            ) AS oldest_ready
-                ON TRUE
-            LEFT JOIN LATERAL (
-                SELECT message.enqueued_at
-                FROM queue_message AS message
-                WHERE message.queue_id = queue.id
-                  AND message.priority = priorities.priority
-                  AND message.state = 'IN_FLIGHT'
-                  AND message.visibility_deadline > CURRENT_TIMESTAMP
-                ORDER BY message.enqueued_at
-                LIMIT 1
-            ) AS oldest_in_flight
-                ON TRUE
-            ORDER BY
-                queue.name,
-                priorities.priority DESC
-            "#,
-        )
-        .fetch_all(&mut *lease.connection)
-        .await;
-
-        self.metrics.operation_finished(
-            "queue.read_state_metrics",
-            started.elapsed(),
-            result.is_ok(),
-        );
-
-        if let Err(error) = &result {
-            Span::current().record("error.type", database::error_type(error));
-            Span::current().record("otel.status_code", "ERROR");
-        }
-
-        result?
-            .into_iter()
-            .map(|row| {
-                let priority = MessagePriority::from_rank(row.priority).ok_or_else(|| {
-                    anyhow!(
-                        "queue state query returned invalid priority rank {}",
-                        row.priority
-                    )
-                })?;
-
-                let ready = u64::try_from(row.ready)
-                    .context("queue state query returned a negative ready count")?;
-
-                let in_flight = u64::try_from(row.in_flight)
-                    .context("queue state query returned a negative in-flight count")?;
-
-                Ok(QueuePriorityStateSnapshot::new(
-                    row.queue_name,
-                    priority,
-                    ready,
-                    in_flight,
-                    row.oldest_ready_age_seconds,
-                    row.oldest_in_flight_age_seconds,
-                ))
-            })
-            .collect()
     }
 }

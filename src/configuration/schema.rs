@@ -107,6 +107,25 @@ pub(crate) struct MetricsConfig {
 #[serde(default, deny_unknown_fields)]
 pub(crate) struct CacheConfig {
     #[validate(nested)]
+    pub(crate) in_memory: InMemoryCacheConfig,
+
+    #[validate(nested)]
+    pub(crate) distributed: DistributedCacheConfig,
+}
+
+#[derive(Deserialize, Validate)]
+#[serde(default, deny_unknown_fields)]
+pub(crate) struct InMemoryCacheConfig {
+    pub(crate) enabled: bool,
+
+    #[validate(nested)]
+    pub(crate) regions: InMemoryCacheRegionsConfig,
+}
+
+#[derive(Default, Deserialize, Validate)]
+#[serde(default, deny_unknown_fields)]
+pub(crate) struct InMemoryCacheRegionsConfig {
+    #[validate(nested)]
     pub(crate) queue_names: CachePolicyConfig,
 }
 
@@ -118,6 +137,21 @@ pub(crate) struct CachePolicyConfig {
 
     #[validate(range(min = 1, max = 4_294_967_295_u64))] // 4GB
     pub(crate) max_capacity_bytes: u64,
+}
+
+#[derive(Deserialize, Validate)]
+#[serde(default, deny_unknown_fields)]
+pub(crate) struct DistributedCacheConfig {
+    pub(crate) enabled: bool,
+
+    #[validate(url)]
+    pub(crate) url: String,
+
+    #[validate(range(min = 1, max = 10_000))]
+    pub(crate) connection_timeout_milliseconds: u64,
+
+    #[validate(range(min = 1, max = 10_000))]
+    pub(crate) command_timeout_milliseconds: u64,
 }
 
 #[derive(Deserialize, Validate)]

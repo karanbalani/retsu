@@ -16,7 +16,7 @@ impl ApplicationContext {
     pub(crate) async fn initialize(
         configuration: &AppConfiguration,
         metrics: Metrics,
-    ) -> Result<Self, sqlx::Error> {
+    ) -> anyhow::Result<Self> {
         let database_pool = database::connect(&configuration.database).await?;
 
         metrics.database().register_pool(
@@ -28,9 +28,10 @@ impl ApplicationContext {
             database_pool.clone(),
             metrics.queue().clone(),
             metrics.database().clone(),
-            &configuration.cache.queue_names,
+            &configuration.cache.in_memory,
+            &configuration.cache.distributed,
             metrics.cache().clone(),
-        );
+        )?;
 
         tracing::info!("application dependencies initialized");
 

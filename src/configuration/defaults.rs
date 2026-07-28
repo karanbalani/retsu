@@ -6,9 +6,9 @@ use std::{
 use super::{
     AppConfiguration,
     schema::{
-        CacheConfig, CachePolicyConfig, DatabaseConfig, Environment, HttpConfig, LogFormat,
-        LoggingConfig, MetricsConfig, TelemetryConfig, TraceExportConfig, WorkerConfig,
-        WorkerManagementConfig,
+        CacheConfig, CachePolicyConfig, DatabaseConfig, DistributedCacheConfig, Environment,
+        HttpConfig, InMemoryCacheConfig, LogFormat, LoggingConfig, MetricsConfig, TelemetryConfig,
+        TraceExportConfig, WorkerConfig, WorkerManagementConfig,
     },
 };
 
@@ -74,11 +74,47 @@ fn cache_max_capacity_bytes() -> u64 {
     8 * 1024 * 1024
 }
 
+fn cache_enabled() -> bool {
+    true
+}
+
+impl Default for InMemoryCacheConfig {
+    fn default() -> Self {
+        Self {
+            enabled: cache_enabled(),
+            regions: Default::default(),
+        }
+    }
+}
+
 impl Default for CachePolicyConfig {
     fn default() -> Self {
         Self {
             max_entries: cache_max_entries(),
             max_capacity_bytes: cache_max_capacity_bytes(),
+        }
+    }
+}
+
+fn distributed_cache_url() -> String {
+    "redis://127.0.0.1:24251".to_owned()
+}
+
+fn distributed_cache_connection_timeout_milliseconds() -> u64 {
+    50
+}
+
+fn distributed_cache_command_timeout_milliseconds() -> u64 {
+    20
+}
+
+impl Default for DistributedCacheConfig {
+    fn default() -> Self {
+        Self {
+            enabled: cache_enabled(),
+            url: distributed_cache_url(),
+            connection_timeout_milliseconds: distributed_cache_connection_timeout_milliseconds(),
+            command_timeout_milliseconds: distributed_cache_command_timeout_milliseconds(),
         }
     }
 }

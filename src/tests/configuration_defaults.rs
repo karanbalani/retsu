@@ -43,12 +43,42 @@ fn checked_in_yaml_matches_programmatic_defaults() {
         defaults.telemetry.traces.timeout_seconds
     );
     assert_eq!(
-        from_file.cache.queue_names.max_entries,
-        defaults.cache.queue_names.max_entries
+        from_file.cache.in_memory.enabled,
+        defaults.cache.in_memory.enabled
     );
     assert_eq!(
-        from_file.cache.queue_names.max_capacity_bytes,
-        defaults.cache.queue_names.max_capacity_bytes
+        from_file.cache.in_memory.regions.queue_names.max_entries,
+        defaults.cache.in_memory.regions.queue_names.max_entries
+    );
+    assert_eq!(
+        from_file
+            .cache
+            .in_memory
+            .regions
+            .queue_names
+            .max_capacity_bytes,
+        defaults
+            .cache
+            .in_memory
+            .regions
+            .queue_names
+            .max_capacity_bytes
+    );
+    assert_eq!(
+        from_file.cache.distributed.enabled,
+        defaults.cache.distributed.enabled
+    );
+    assert_eq!(
+        from_file.cache.distributed.url,
+        defaults.cache.distributed.url
+    );
+    assert_eq!(
+        from_file.cache.distributed.connection_timeout_milliseconds,
+        defaults.cache.distributed.connection_timeout_milliseconds
+    );
+    assert_eq!(
+        from_file.cache.distributed.command_timeout_milliseconds,
+        defaults.cache.distributed.command_timeout_milliseconds
     );
     assert_eq!(from_file.database.url, defaults.database.url);
     assert_eq!(

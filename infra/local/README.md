@@ -1,7 +1,7 @@
 # Local infrastructure
 
-The Retsu application runs on the host through Cargo. PostgreSQL and the optional
-monitoring services run through Docker Compose.
+The Retsu application runs on the host through Cargo. PostgreSQL, Dragonfly,
+and the optional monitoring services run through Docker Compose.
 
 ## Prerequisites
 
@@ -32,15 +32,15 @@ It is used only by Docker Compose. Do not source it into the application
 environment because its `RETSU_LOCAL_*` variables are not Retsu application
 configuration fields.
 
-## PostgreSQL
+## PostgreSQL and distributed cache
 
-Start PostgreSQL and apply pending migrations:
+Start PostgreSQL and Dragonfly, then apply pending migrations:
 
 ```bash
 just setup
 ```
 
-Start PostgreSQL without applying migrations:
+Start PostgreSQL and Dragonfly without applying migrations:
 
 ```bash
 just db-up
@@ -52,7 +52,7 @@ Open a PostgreSQL shell:
 just db-shell
 ```
 
-Stop PostgreSQL while preserving its data:
+Stop PostgreSQL and Dragonfly while preserving PostgreSQL data:
 
 ```bash
 just db-stop
@@ -97,7 +97,7 @@ each worker a different management port:
 just worker-observed queue visibility-timeout-processor
 RETSU_WORKER__MANAGEMENT__PORT=24250 \
   just worker-observed queue expired-message-cleaner
-RETSU_WORKER__MANAGEMENT__PORT=24251 \
+RETSU_WORKER__MANAGEMENT__PORT=24252 \
   just worker-observed queue state-metrics-collector
 ```
 
@@ -170,6 +170,7 @@ just migrate
 - API: http://127.0.0.1:2424
 - API metrics: http://127.0.0.1:2424/metrics
 - PostgreSQL: 127.0.0.1:24240
+- Distributed cache: 127.0.0.1:24251
 - Collector health: http://127.0.0.1:24243
 - Tempo: http://127.0.0.1:24244
 - Prometheus: http://127.0.0.1:24245

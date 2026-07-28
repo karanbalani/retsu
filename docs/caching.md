@@ -1,111 +1,116 @@
 # Caching
 
-Retsu uses a generic cache boundary for data that is safe to reload from an
-authoritative source. The first cached value is a queue's immutable name, keyed
-by queue ID.
+Retsu has two independent cache layers:
 
-Keeping queue names locally lets command metrics resolve `queue.name` without a
-PostgreSQL query on every request. Behavioral settings such as visibility
-timeout, delivery attempts, and default message lifetime are not stored in the
-process-local cache.
+- a process-local in-memory cache for `queue_id -> queue_name`;
+- a distributed Redis-protocol cache for complete queue details.
 
-## Queue-name read path
+PostgreSQL remains the source of truth. Dragonfly is used by the local
+development stack, but the application uses Redis-protocol names and commands
+so Redis or Valkey can replace it.
 
-Each Retsu process has its own bounded in-memory cache backed by Moka.
+## Read paths
 
-```mermaid
-flowchart LR
-    Operation["Queue operation"] --> Memory{"Queue-name cache"}
-    Memory -->|"hit"| Operation
-    Memory -->|"miss"| Database[("PostgreSQL")]
-    Database -->|"found: cache and return"| Memory
-    Database -->|"not found or error: do not cache"| Operation
+A queue-name lookup checks the in-memory cache first. A miss uses the normal
+queue-details path, extracts the name, and stores only that name in memory.
+
+```text
+queue_name(queue_id)
+    -> in-memory queue-name cache
+    -> distributed queue-details cache
+    -> PostgreSQL
 ```
 
-Concurrent misses for the same queue ID share one load. Missing queues and
-database errors are not cached, so a later request can observe a newly created
-queue or retry a transient failure.
+A queue-details lookup deliberately skips the process-local name cache:
 
-PostgreSQL remains the source of truth. The cache does not change queue
-validation or database constraints.
+```text
+queue_details(queue_id)
+    -> distributed queue-details cache
+    -> PostgreSQL
+```
 
-## Write-through and invalidation
+The in-memory cache is private to one process. The distributed cache is shared
+by API and worker replicas.
 
-Queue creation first commits to PostgreSQL. Only a successful creation
-populates the local queue-name cache. A database conflict or failure never adds
-an unpersisted name. Both actions happen behind the cached repository boundary,
-so callers cannot accidentally persist a queue without applying the cache
-policy.
+## Write-through
 
-Cache population and invalidation are best effort. A cache problem is logged
-but does not turn a successful database write into an API failure. The next miss
-can reload the value from PostgreSQL.
+Queue creation writes in this order:
 
-If an authoritative enqueue or acknowledge reports that a queue no longer
-exists, Retsu invalidates the local entry. This protects against continuing to
-use a stale queue name after an out-of-band deletion.
+```text
+PostgreSQL
+    -> distributed queue-details cache
+    -> in-memory queue-name cache
+```
 
-## Expiration and capacity
+Cache writes happen only after PostgreSQL accepts the queue. Cache failures are
+logged and do not turn a committed database write into an API failure.
 
-Queue names do not expire based on time. Names are immutable, so time-based
-expiration would only create recurring database reads without improving
-correctness. Entries can still be evicted by Moka's admission and eviction
-policy when the cache reaches either configured capacity limit.
+Queue mutations use write-through replacement rather than cache invalidation.
+An update persists PostgreSQL first, then overwrites L2 and L1 as the repository
+call returns through the decorators.
 
-The defaults are:
+## Stampede protection
+
+Moka coalesces concurrent in-memory misses for the same queue ID within one
+process.
+
+On a distributed miss, a process claims a short-lived per-queue load lock using
+Redis `SET NX PX`. The lock holder checks the distributed value again, loads
+PostgreSQL once, and populates the distributed cache. Other processes wait for
+the value or for the lock lease to expire before attempting to load.
+
+The lock expires after its short lease; no explicit unlock command is needed.
+If the distributed cache is unavailable, Retsu fails open to PostgreSQL;
+per-process Moka coalescing still applies.
+
+## Expiration
+
+Complete queue details have a five-minute safety TTL.
+
+Missing queues are cached for five seconds. This bounds repeated database reads
+for nonexistent queue IDs while allowing a later creation to become visible
+quickly.
+
+Queue names have no time-based expiration because names are immutable. They can
+still be evicted when their process-local cache reaches either configured
+capacity limit.
+
+## Configuration
 
 ```yaml
 cache:
-  queue_names:
-    max_entries: 10000
-    max_capacity_bytes: 8388608
+  in_memory:
+    enabled: true
+    regions:
+      queue_names:
+        max_entries: 10000
+        max_capacity_bytes: 8388608
+  distributed:
+    enabled: true
+    url: redis://127.0.0.1:24251
+    connection_timeout_milliseconds: 50
+    command_timeout_milliseconds: 20
 ```
 
-The environment overrides are:
+Environment overrides follow the same hierarchy:
 
 ```bash
-RETSU_CACHE__QUEUE_NAMES__MAX_ENTRIES=20000
-RETSU_CACHE__QUEUE_NAMES__MAX_CAPACITY_BYTES=33554432
+RETSU_CACHE__IN_MEMORY__ENABLED=false
+RETSU_CACHE__IN_MEMORY__REGIONS__QUEUE_NAMES__MAX_ENTRIES=20000
+RETSU_CACHE__DISTRIBUTED__ENABLED=false
+RETSU_CACHE__DISTRIBUTED__URL=redis://cache.internal:6379
 ```
 
-The default byte capacity is 8 MiB. `max_entries` is accepted from 1 through
-1,000,000 and `max_capacity_bytes` from 1 through 4,294,967,295.
+The distributed connection is multiplexed and reconnecting. A connection
+attempt has a 50 ms default budget and each command has a 20 ms default budget.
 
-Moka has one weighted-capacity limit, so Retsu assigns each entry the larger of:
+The two cache layers can be enabled independently. The decorator remains in the
+repository chain when disabled, but its cache client is not constructed and it
+delegates directly to the next repository:
 
-- its estimated retained key-and-value bytes;
-- `max_capacity_bytes / max_entries`.
-
-This makes eviction respect both the entry ceiling and the byte budget. The byte
-budget is an estimate of retained cache data, not a hard process-RSS limit. Moka
-bookkeeping, reference-counted allocation headers, and allocator overhead are
-not measurable through its weigher and can consume additional memory.
-
-## Future queue-details cache
-
-Queue defaults can change, so caching them independently in every process
-without expiration or coordinated invalidation would be unsafe. Until a shared
-cache is introduced, operations that need those defaults continue to read them
-from PostgreSQL.
-
-A future Dragonfly layer can be composed as another fallback:
-
-```mermaid
-flowchart LR
-    Operation["Operation needing queue defaults"] --> Shared{"Dragonfly"}
-    Shared -->|"miss or unavailable"| Database[("PostgreSQL")]
-    Database -->|"found: cache and return"| Shared
-```
-
-The write order remains source-of-truth first: commit PostgreSQL, then refresh
-or invalidate Dragonfly. Every Retsu replica reads the same shared value, and a
-Dragonfly failure falls through to PostgreSQL. A safety TTL and versioned keys
-can bound stale data if a refresh or invalidation is missed.
-
-The local queue-name cache remains separate because its values are immutable
-and do not need cross-replica coherence. Application code depends on the generic
-cache contract rather than Moka directly, so adding a distributed backend does
-not change operation-level code.
+- no in-memory cache makes `queue_name` use `queue_details` directly;
+- no distributed cache makes `queue_details` use PostgreSQL directly;
+- disabling both makes all queue metadata reads use PostgreSQL.
 
 ## Metrics
 
@@ -116,13 +121,15 @@ Retsu exports:
 | `cache.requests` | `cache.name`, `outcome` | Cache hits and misses |
 | `cache.load.duration` | `cache.name`, `outcome` | Source-load latency after a miss |
 
-The queue-name cache uses `cache.name="queue_names"`. Request outcomes are
-`hit` and `miss`. Load outcomes are `success`, `not_found`, and `error`.
+The cache names are `queue_names` and `queue_details`. Load outcomes are
+`success`, `not_found`, and `error`.
 
 ## Main implementation files
 
-- `src/cache/` defines the generic contract and Moka implementation.
-- `src/modules/queue/infrastructure/cached.rs` composes queue persistence with
-  queue-name caching.
-- `src/configuration/schema.rs` defines and validates cache policies.
-- `src/observability/metrics/cache.rs` owns cache instrumentation.
+- `src/cache/memory.rs` contains the process-local Moka cache.
+- `src/cache/redis_protocol.rs` contains the vendor-neutral Redis-protocol
+  connection and commands.
+- `src/modules/queue/infrastructure/l2.rs` owns queue-details keys,
+  serialization, TTLs, distributed load locking, and PostgreSQL fallback.
+- `src/modules/queue/infrastructure/l1.rs` owns process-local queue-name
+  caching and delegates misses to the distributed repository.

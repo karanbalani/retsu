@@ -7,6 +7,7 @@ pub(super) fn configure(configuration: &mut web::ServiceConfig) {
     configuration.service(
         web::scope("/v1/queues")
             .route("", web::post().to(handlers::create_queue))
+            .route("/{queue_id}", web::patch().to(handlers::update_queue))
             .route(
                 "/{queue_id}/messages",
                 web::post().to(handlers::enqueue_message),

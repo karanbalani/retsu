@@ -1,7 +1,7 @@
 # Queues and messages
 
-Retsu can create queues, add messages, return the next waiting message, and
-mark a returned message as complete.
+Retsu can create and configure queues, add messages, return the next waiting
+message, and mark a returned message as complete.
 
 ## Create a queue
 
@@ -67,6 +67,43 @@ curl --request POST http://127.0.0.1:2424/v1/queues \
 - `400` and `invalid_default_message_ttl`: the value is outside the allowed
   range.
 - `409` and `queue_already_exists`: another queue already uses the same name.
+
+## Update queue configuration
+
+Use `PATCH` with the stable queue ID. Only the fields included in the request
+change; queue names are immutable.
+
+```bash
+curl --request PATCH \
+  http://127.0.0.1:2424/v1/queues/019c9a65-7d3a-7c6b-8a9d-123456789abc \
+  --header 'content-type: application/json' \
+  --data '{
+    "visibility_timeout_seconds": 60,
+    "max_delivery_attempts": 10
+  }'
+```
+
+A successful request returns status `200` and the complete updated queue:
+
+```json
+{
+  "id": "019c9a65-7d3a-7c6b-8a9d-123456789abc",
+  "name": "emails",
+  "visibility_timeout_seconds": 60,
+  "max_delivery_attempts": 10,
+  "default_message_ttl_seconds": 604800
+}
+```
+
+The update is written to PostgreSQL first and then replaces the distributed
+queue-details entry and process-local queue-name entry.
+
+### Update errors
+
+- `400` and `empty_queue_update`: no configuration field was provided.
+- `400` and the relevant validation code from the queue settings table: a
+  supplied value is outside its accepted range.
+- `404` and `queue_not_found`: the queue does not exist.
 
 ## Add a message
 
