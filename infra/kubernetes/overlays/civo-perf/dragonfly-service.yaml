@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: dragonfly
+  labels:
+    app.kubernetes.io/name: dragonfly
+    app.kubernetes.io/component: distributed-cache
+    app.kubernetes.io/part-of: retsu
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: dragonfly
+    app.kubernetes.io/component: distributed-cache
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+      protocol: TCP
