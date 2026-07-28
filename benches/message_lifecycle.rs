@@ -20,18 +20,18 @@ fn benchmark_message_lifecycle(criterion: &mut Criterion) {
     let queue_name = unique_queue_name("benchmark-lifecycle");
     let payload = "x".repeat(PAYLOAD_SIZE_BYTES);
 
-    runtime
+    let queue_id = runtime
         .block_on(system.create_queue(&queue_name, 30, 5, 604_800))
         .expect("benchmark queue should be created");
 
     criterion.bench_function("message_lifecycle/1_kib", |bencher| {
         bencher.to_async(&runtime).iter(|| async {
             let message_id = system
-                .enqueue_message(&queue_name, &payload, "MEDIUM", None)
+                .enqueue_message(queue_id, &payload, "MEDIUM", None)
                 .await
                 .expect("benchmark message should be enqueued");
             let message = system
-                .dequeue_message(&queue_name)
+                .dequeue_message(queue_id)
                 .await
                 .expect("benchmark message should be dequeued")
                 .expect("benchmark queue should contain one message");
@@ -39,7 +39,7 @@ fn benchmark_message_lifecycle(criterion: &mut Criterion) {
             assert_eq!(message.id, message_id);
 
             system
-                .acknowledge_message(&queue_name, message.id, message.receipt_handle)
+                .acknowledge_message(queue_id, message.id, message.receipt_handle)
                 .await
                 .expect("benchmark message should be acknowledged");
         });
