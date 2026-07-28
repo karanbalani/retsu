@@ -25,7 +25,8 @@ A successful request returns status `201` and the new queue:
 }
 ```
 
-The `id` will be different for every queue.
+The `id` will be different for every queue. Keep it for message operations, which
+identify the queue by this stable ID rather than by its name.
 
 ### Queue settings
 
@@ -69,10 +70,11 @@ curl --request POST http://127.0.0.1:2424/v1/queues \
 
 ## Add a message
 
-Use the queue name in the address:
+Use the queue ID returned when the queue was created:
 
 ```bash
-curl --request POST http://127.0.0.1:2424/v1/queues/emails/messages \
+curl --request POST \
+  http://127.0.0.1:2424/v1/queues/019c9a65-7d3a-7c6b-8a9d-123456789abc/messages \
   --header 'content-type: application/json' \
   --data '{
     "payload": "send welcome email",
@@ -85,7 +87,7 @@ A successful request returns status `201` and the new message ID:
 
 ```json
 {
-  "id": "019c9a65-7d3a-7c6b-8a9d-123456789abc"
+  "id": "019c9a66-2d13-7be7-9728-123456789abc"
 }
 ```
 
@@ -101,23 +103,25 @@ The `id` will be different for every message.
 
 ### Message errors
 
+- `400` and `invalid_path`: the queue ID is not a valid UUID.
 - `400` and `invalid_priority`: the priority is not `HIGH`, `MEDIUM`, or `LOW`.
 - `400` and `invalid_ttl`: `ttl_seconds` is outside the accepted range.
 - `404` and `queue_not_found`: the queue does not exist.
 
 ## Get the next message
 
-Use the queue name in the address. The request does not need a body:
+Use the queue ID in the address. The request does not need a body:
 
 ```bash
-curl --request POST http://127.0.0.1:2424/v1/queues/emails/messages/dequeue
+curl --request POST \
+  http://127.0.0.1:2424/v1/queues/019c9a65-7d3a-7c6b-8a9d-123456789abc/messages/dequeue
 ```
 
 A successful request returns status `200` and the next message:
 
 ```json
 {
-  "id": "019c9a65-7d3a-7c6b-8a9d-123456789abc",
+  "id": "019c9a66-2d13-7be7-9728-123456789abc",
   "payload": "send welcome email",
   "priority": "HIGH",
   "receipt_handle": "d03de2b6-22d6-46f5-a662-3af5d46f7054",
@@ -152,7 +156,7 @@ Use the `id` and `receipt_handle` from the latest response:
 
 ```bash
 curl --request POST \
-  http://127.0.0.1:2424/v1/queues/emails/messages/019c9a65-7d3a-7c6b-8a9d-123456789abc/acknowledge \
+  http://127.0.0.1:2424/v1/queues/019c9a65-7d3a-7c6b-8a9d-123456789abc/messages/019c9a66-2d13-7be7-9728-123456789abc/acknowledge \
   --header 'content-type: application/json' \
   --data '{
     "receipt_handle": "d03de2b6-22d6-46f5-a662-3af5d46f7054"

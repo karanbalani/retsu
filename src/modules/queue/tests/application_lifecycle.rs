@@ -62,7 +62,7 @@ impl FakeMessageRepository {
 impl MessageRepository for FakeMessageRepository {
     async fn enqueue_message(
         &self,
-        _queue_name: &str,
+        _queue_id: Uuid,
         _message: &Message,
     ) -> Result<EnqueueMessageOutcome, anyhow::Error> {
         unreachable!("lifecycle tests should not enqueue messages")
@@ -70,7 +70,7 @@ impl MessageRepository for FakeMessageRepository {
 
     async fn dequeue_message(
         &self,
-        _queue_name: &str,
+        _queue_id: Uuid,
         _receipt_handle: Uuid,
     ) -> Result<DequeueMessageOutcome, anyhow::Error> {
         unreachable!("lifecycle tests should not dequeue messages")
@@ -78,7 +78,7 @@ impl MessageRepository for FakeMessageRepository {
 
     async fn acknowledge_message(
         &self,
-        _queue_name: &str,
+        _queue_id: Uuid,
         _message_id: Uuid,
         _receipt_handle: Uuid,
     ) -> Result<AcknowledgeMessageOutcome, anyhow::Error> {
@@ -133,11 +133,7 @@ async fn preserves_distinct_acknowledgement_failures() {
 
         execute_acknowledge_message(
             &repository,
-            AcknowledgeMessageCommand::new(
-                "email-delivery".to_owned(),
-                Uuid::now_v7(),
-                Uuid::new_v4(),
-            ),
+            AcknowledgeMessageCommand::new(Uuid::now_v7(), Uuid::now_v7(), Uuid::new_v4()),
         )
         .await
     }

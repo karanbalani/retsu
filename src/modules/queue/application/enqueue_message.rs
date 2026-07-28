@@ -9,7 +9,7 @@ use super::super::{
 
 #[derive(Debug)]
 pub(in crate::modules::queue) struct EnqueueMessageCommand {
-    queue_name: String,
+    queue_id: Uuid,
     payload: String,
     priority: String,
     ttl_seconds: Option<u32>,
@@ -17,13 +17,13 @@ pub(in crate::modules::queue) struct EnqueueMessageCommand {
 
 impl EnqueueMessageCommand {
     pub(in crate::modules::queue) fn new(
-        queue_name: String,
+        queue_id: Uuid,
         payload: String,
         priority: String,
         ttl_seconds: Option<u32>,
     ) -> Self {
         Self {
-            queue_name,
+            queue_id,
             payload,
             priority,
             ttl_seconds,
@@ -34,7 +34,7 @@ impl EnqueueMessageCommand {
 #[derive(Debug)]
 pub(in crate::modules::queue) struct EnqueuedMessage {
     id: Uuid,
-    queue_name: String,
+    queue_id: Uuid,
     priority: MessagePriority,
 }
 
@@ -43,8 +43,8 @@ impl EnqueuedMessage {
         self.id
     }
 
-    pub(in crate::modules::queue) fn queue_name(&self) -> &str {
-        &self.queue_name
+    pub(in crate::modules::queue) fn queue_id(&self) -> Uuid {
+        self.queue_id
     }
 
     pub(in crate::modules::queue) fn priority(&self) -> &'static str {
@@ -52,7 +52,7 @@ impl EnqueuedMessage {
     }
 }
 
-#[tracing::instrument(name = "queue.enqueue", skip_all, fields(queue.name = %command.queue_name, message.id = field::Empty, message.priority = field::Empty), err)]
+#[tracing::instrument(name = "queue.enqueue", skip_all, fields(queue.id = %command.queue_id, queue.name = field::Empty, message.id = field::Empty, message.priority = field::Empty), err)]
 pub(in crate::modules::queue) async fn execute<R>(
     repository: &R,
     command: EnqueueMessageCommand,
@@ -61,7 +61,7 @@ where
     R: MessageRepository,
 {
     let EnqueueMessageCommand {
-        queue_name,
+        queue_id,
         payload,
         priority,
         ttl_seconds,
@@ -73,7 +73,7 @@ where
     tracing::Span::current().record("message.priority", message.priority().as_str());
 
     match repository
-        .enqueue_message(&queue_name, &message)
+        .enqueue_message(queue_id, &message)
         .await
         .map_err(EnqueueMessageError::Persistence)?
     {
@@ -85,7 +85,7 @@ where
 
     Ok(EnqueuedMessage {
         id: message.id(),
-        queue_name,
+        queue_id,
         priority: message.priority(),
     })
 }

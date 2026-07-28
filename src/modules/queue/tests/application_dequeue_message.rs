@@ -26,7 +26,7 @@ enum FakeDequeueOutcome {
 
 struct FakeMessageRepository {
     dequeue_outcome: FakeDequeueOutcome,
-    dequeue_call: Mutex<Option<(String, Uuid)>>,
+    dequeue_call: Mutex<Option<(Uuid, Uuid)>>,
 }
 
 impl FakeMessageRepository {
@@ -41,7 +41,7 @@ impl FakeMessageRepository {
 impl MessageRepository for FakeMessageRepository {
     async fn enqueue_message(
         &self,
-        _queue_name: &str,
+        _queue_id: Uuid,
         _message: &Message,
     ) -> Result<EnqueueMessageOutcome, anyhow::Error> {
         unreachable!("dequeue tests should not enqueue messages")
@@ -49,13 +49,13 @@ impl MessageRepository for FakeMessageRepository {
 
     async fn dequeue_message(
         &self,
-        queue_name: &str,
+        queue_id: Uuid,
         receipt_handle: Uuid,
     ) -> Result<DequeueMessageOutcome, anyhow::Error> {
         self.dequeue_call
             .lock()
             .expect("dequeue call lock should not be poisoned")
-            .replace((queue_name.to_owned(), receipt_handle));
+            .replace((queue_id, receipt_handle));
 
         Ok(match &self.dequeue_outcome {
             FakeDequeueOutcome::Dequeued {
@@ -77,7 +77,7 @@ impl MessageRepository for FakeMessageRepository {
 
     async fn acknowledge_message(
         &self,
-        _queue_name: &str,
+        _queue_id: Uuid,
         _message_id: Uuid,
         _receipt_handle: Uuid,
     ) -> Result<AcknowledgeMessageOutcome, anyhow::Error> {
@@ -101,6 +101,7 @@ impl MessageRepository for FakeMessageRepository {
 
 #[tokio::test]
 async fn returns_the_repository_lease_with_its_generated_receipt_handle() {
+    let queue_id = Uuid::now_v7();
     let message_id = Uuid::now_v7();
     let repository = FakeMessageRepository::new(FakeDequeueOutcome::Dequeued {
         id: message_id,
@@ -109,21 +110,19 @@ async fn returns_the_repository_lease_with_its_generated_receipt_handle() {
         delivery_attempts: 2,
     });
 
-    let dequeued = execute(
-        &repository,
-        DequeueMessageCommand::new("email-delivery".to_owned()),
-    )
-    .await
-    .expect("dequeue should succeed")
-    .expect("repository returned a message");
+    let dequeued = execute(&repository, DequeueMessageCommand::new(queue_id))
+        .await
+        .expect("dequeue should succeed")
+        .expect("repository returned a message");
 
     let call = repository
         .dequeue_call
         .lock()
         .expect("dequeue call lock should not be poisoned");
-    let (queue_name, receipt_handle) = call.as_ref().expect("repository should be called once");
+    let (persisted_queue_id, receipt_handle) =
+        call.as_ref().expect("repository should be called once");
 
-    assert_eq!(queue_name, "email-delivery");
+    assert_eq!(*persisted_queue_id, queue_id);
     assert_eq!(receipt_handle.get_version(), Some(Version::Random));
     assert_eq!(dequeued.id(), message_id);
     assert_eq!(dequeued.payload(), r#"{"job":42}"#);
@@ -134,18 +133,15 @@ async fn returns_the_repository_lease_with_its_generated_receipt_handle() {
 
 #[tokio::test]
 async fn distinguishes_an_empty_queue_from_a_missing_queue() {
+    let queue_id = Uuid::now_v7();
     let empty_repository = FakeMessageRepository::new(FakeDequeueOutcome::Empty);
-    let empty = execute(
-        &empty_repository,
-        DequeueMessageCommand::new("email-delivery".to_owned()),
-    )
-    .await;
+    let empty = execute(&empty_repository, DequeueMessageCommand::new(queue_id)).await;
     assert!(matches!(empty, Ok(None)));
 
     let missing_repository = FakeMessageRepository::new(FakeDequeueOutcome::QueueNotFound);
     let missing = execute(
         &missing_repository,
-        DequeueMessageCommand::new("missing-queue".to_owned()),
+        DequeueMessageCommand::new(Uuid::now_v7()),
     )
     .await;
     assert!(matches!(missing, Err(DequeueMessageError::QueueNotFound)));

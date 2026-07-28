@@ -5,26 +5,26 @@ use super::super::application::{MessageRepository, repository::AcknowledgeMessag
 
 #[derive(Debug)]
 pub(in crate::modules::queue) struct AcknowledgeMessageCommand {
-    queue_name: String,
+    queue_id: Uuid,
     message_id: Uuid,
     receipt_handle: Uuid,
 }
 
 impl AcknowledgeMessageCommand {
     pub(in crate::modules::queue) fn new(
-        queue_name: String,
+        queue_id: Uuid,
         message_id: Uuid,
         receipt_handle: Uuid,
     ) -> Self {
         Self {
-            queue_name,
+            queue_id,
             message_id,
             receipt_handle,
         }
     }
 
-    pub(in crate::modules::queue) fn queue_name(&self) -> &str {
-        &self.queue_name
+    pub(in crate::modules::queue) fn queue_id(&self) -> Uuid {
+        self.queue_id
     }
 }
 
@@ -32,7 +32,8 @@ impl AcknowledgeMessageCommand {
     name = "queue.acknowledge",
     skip_all,
     fields(
-        queue.name = %command.queue_name,
+        queue.id = %command.queue_id,
+        queue.name = tracing::field::Empty,
         message.id = %command.message_id,
     ),
     err
@@ -45,13 +46,13 @@ where
     R: MessageRepository,
 {
     let AcknowledgeMessageCommand {
-        queue_name,
+        queue_id,
         message_id,
         receipt_handle,
     } = command;
 
     match repository
-        .acknowledge_message(&queue_name, message_id, receipt_handle)
+        .acknowledge_message(queue_id, message_id, receipt_handle)
         .await
         .map_err(AcknowledgeMessageError::Persistence)?
     {

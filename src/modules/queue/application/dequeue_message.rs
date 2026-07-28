@@ -9,12 +9,12 @@ use super::super::{
 
 #[derive(Debug)]
 pub(in crate::modules::queue) struct DequeueMessageCommand {
-    queue_name: String,
+    queue_id: Uuid,
 }
 
 impl DequeueMessageCommand {
-    pub(in crate::modules::queue) fn new(queue_name: String) -> Self {
-        Self { queue_name }
+    pub(in crate::modules::queue) fn new(queue_id: Uuid) -> Self {
+        Self { queue_id }
     }
 }
 
@@ -53,7 +53,7 @@ impl DequeuedMessage {
     name = "queue.dequeue",
     skip_all,
     fields(
-        queue.name = %command.queue_name,
+        queue.id = %command.queue_id,
         message.id = field::Empty,
         message.priority = field::Empty,
         message.delivery_attempts = field::Empty,
@@ -67,11 +67,11 @@ pub(in crate::modules::queue) async fn execute<R>(
 where
     R: MessageRepository,
 {
-    let DequeueMessageCommand { queue_name } = command;
+    let DequeueMessageCommand { queue_id } = command;
     let receipt_handle = Uuid::new_v4();
 
     match repository
-        .dequeue_message(&queue_name, receipt_handle)
+        .dequeue_message(queue_id, receipt_handle)
         .await
         .map_err(DequeueMessageError::Persistence)?
     {

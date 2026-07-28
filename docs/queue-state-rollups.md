@@ -57,6 +57,10 @@ The following metrics do not come from the state snapshot:
 
 Keeping event metrics at the queue-operation boundary means a future CLI or a change from queue name to queue ID does not need another metrics implementation. HTTP handlers do not own queue business metrics.
 
+The enqueue and acknowledge command counters use `queue.id`. They intentionally
+omit `queue.name` until queue-name enrichment is provided independently of the
+request database queries. Worker and state metrics continue to use `queue.name`.
+
 ## Why one aggregate query is not enough
 
 The first collector query used `COUNT` and `MIN` over every active message every 15 seconds.

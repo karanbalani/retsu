@@ -60,8 +60,8 @@ pub(super) async fn enqueue_message(
     path: web::Path<QueuePath>,
     request: web::Json<EnqueueMessageRequest>,
 ) -> Result<HttpResponse, ApiError> {
-    let queue_name = path.into_inner().into_queue_name();
-    let command = request.into_inner().into_command(queue_name);
+    let queue_id = path.into_inner().into_queue_id();
+    let command = request.into_inner().into_command(queue_id);
 
     let enqueued_message = context
         .queue_module()
