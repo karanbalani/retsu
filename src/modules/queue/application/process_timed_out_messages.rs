@@ -1,7 +1,7 @@
 use thiserror::Error;
 use tracing::field;
 
-use super::repository::{MessageRepository, TimeoutProcessingSummary};
+use super::repository::{QueueRepository, TimeoutProcessingSummary};
 
 #[tracing::instrument(
     name = "queue.visibility_timeout.process",
@@ -21,7 +21,7 @@ pub(in crate::modules::queue) async fn execute<R>(
     batch_size: u32,
 ) -> Result<TimeoutProcessingSummary, ProcessTimedOutMessagesError>
 where
-    R: MessageRepository,
+    R: QueueRepository,
 {
     let summary = repository
         .process_timed_out_messages(batch_size)

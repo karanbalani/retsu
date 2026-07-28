@@ -14,28 +14,31 @@ use super::definition::{ModuleDefinition, WorkerDefinition};
 
 use application::{
     AcknowledgeMessageCommand, AcknowledgeMessageError, CreateQueueCommand, CreateQueueError,
-    CreatedQueue, DequeueMessageCommand, DequeueMessageError, DequeuedMessage,
-    EnqueueMessageCommand, EnqueueMessageError, EnqueuedMessage, ExpiredMessagesCleanupSummary,
-    ProcessExpiredMessagesError, ProcessTimedOutMessagesError, QueueStateRepository,
-    TimeoutProcessingSummary, execute_acknowledge_message, execute_create_queue,
+    DequeueMessageCommand, DequeueMessageError, DequeuedMessage, EnqueueMessageCommand,
+    EnqueueMessageError, EnqueuedMessage, ExpiredMessagesCleanupSummary,
+    ProcessExpiredMessagesError, ProcessTimedOutMessagesError, TimeoutProcessingSummary,
+    UpdateQueueCommand, UpdateQueueError, execute_acknowledge_message, execute_create_queue,
     execute_dequeue_message, execute_enqueue_message, execute_process_expired_messages,
-    execute_process_timed_out_messages,
+    execute_process_timed_out_messages, execute_update_queue,
 };
 
 use crate::{
-    cache::{MemoryCache, MemoryCachePolicy},
-    configuration::CachePolicyConfig,
+    cache::{MemoryCache, MemoryCachePolicy, RedisProtocolCache},
+    configuration::{DistributedCacheConfig, InMemoryCacheConfig},
     observability::{
         CacheMetrics, DatabaseMetrics, QueueInstrumentation, QueuePriorityStateMetric,
     },
 };
 
-use infrastructure::{PostgresQueueRepository, QueueNameCachingRepository};
+use infrastructure::{
+    L1QueueRepository, L2QueueRepository, PostgresQueueRepository, PostgresQueueStateCollector,
+    QueueStateCollectorLease,
+};
 
-type QueueStateCollectorLease = <PostgresQueueRepository as QueueStateRepository>::CollectorLease;
-type QueueNameMemoryCache = MemoryCache<Uuid, String>;
-type QueueNameRepository =
-    QueueNameCachingRepository<PostgresQueueRepository, QueueNameMemoryCache>;
+use domain::QueueDetails;
+
+type L2PostgresQueueRepository = L2QueueRepository<PostgresQueueRepository, RedisProtocolCache>;
+type QueueRepositoryChain = L1QueueRepository<L2PostgresQueueRepository>;
 
 fn queue_name_weight(queue_id: &Uuid, queue_name: &String) -> u32 {
     u32::try_from(
@@ -65,8 +68,8 @@ pub(super) const DEFINITION: ModuleDefinition = ModuleDefinition::new("queue")
 
 #[derive(Clone)]
 pub(crate) struct QueueModule {
-    postgres_repository: PostgresQueueRepository,
-    queue_name_repository: QueueNameRepository,
+    queue_repository: QueueRepositoryChain,
+    state_collector: PostgresQueueStateCollector,
     instrumentation: QueueInstrumentation,
 }
 
@@ -75,59 +78,63 @@ impl QueueModule {
         database_pool: PgPool,
         instrumentation: QueueInstrumentation,
         database_metrics: DatabaseMetrics,
-        cache_configuration: &CachePolicyConfig,
+        in_memory_cache_configuration: &InMemoryCacheConfig,
+        distributed_cache_configuration: &DistributedCacheConfig,
         cache_metrics: CacheMetrics,
-    ) -> Self {
+    ) -> anyhow::Result<Self> {
+        let state_collector =
+            PostgresQueueStateCollector::new(database_pool.clone(), database_metrics.clone());
         let postgres_repository = PostgresQueueRepository::new(database_pool, database_metrics);
-        let cache_policy = MemoryCachePolicy::new(
-            cache_configuration.max_entries,
-            cache_configuration.max_capacity_bytes,
-        );
-        let queue_name_cache = MemoryCache::new(
-            "queue_names",
-            cache_policy,
-            queue_name_weight,
-            cache_metrics,
-        );
-        let queue_name_repository =
-            QueueNameCachingRepository::new(postgres_repository.clone(), queue_name_cache);
 
-        Self {
-            postgres_repository,
-            queue_name_repository,
+        let queue_name_cache = in_memory_cache_configuration.enabled.then(|| {
+            let configuration = &in_memory_cache_configuration.regions.queue_names;
+            let policy =
+                MemoryCachePolicy::new(configuration.max_entries, configuration.max_capacity_bytes);
+
+            MemoryCache::new(
+                "queue_names",
+                policy,
+                queue_name_weight,
+                cache_metrics.clone(),
+            )
+        });
+
+        let distributed_cache = if distributed_cache_configuration.enabled {
+            Some(RedisProtocolCache::new(distributed_cache_configuration)?)
+        } else {
+            None
+        };
+
+        let l2_repository =
+            L2QueueRepository::new(postgres_repository, distributed_cache, cache_metrics);
+        let queue_repository = L1QueueRepository::new(l2_repository, queue_name_cache);
+
+        Ok(Self {
+            queue_repository,
+            state_collector,
             instrumentation,
-        }
+        })
     }
 
     async fn create_queue(
         &self,
         command: CreateQueueCommand,
-    ) -> Result<CreatedQueue, CreateQueueError> {
-        execute_create_queue(&self.queue_name_repository, command).await
+    ) -> Result<QueueDetails, CreateQueueError> {
+        execute_create_queue(&self.queue_repository, command).await
+    }
+
+    async fn update_queue(
+        &self,
+        command: UpdateQueueCommand,
+    ) -> Result<QueueDetails, UpdateQueueError> {
+        execute_update_queue(&self.queue_repository, command).await
     }
 
     async fn enqueue_message(
         &self,
         command: EnqueueMessageCommand,
     ) -> Result<EnqueuedMessage, EnqueueMessageError> {
-        let queue_id = command.queue_id();
-        let message = match execute_enqueue_message(
-            &self.queue_name_repository,
-            &self.postgres_repository,
-            command,
-        )
-        .await
-        {
-            Ok(message) => message,
-            Err(error @ EnqueueMessageError::QueueNotFound) => {
-                self.queue_name_repository
-                    .invalidate_queue_name(queue_id)
-                    .await;
-
-                return Err(error);
-            }
-            Err(error) => return Err(error),
-        };
+        let message = execute_enqueue_message(&self.queue_repository, command).await?;
 
         self.instrumentation
             .commands()
@@ -140,31 +147,14 @@ impl QueueModule {
         &self,
         command: DequeueMessageCommand,
     ) -> Result<Option<DequeuedMessage>, DequeueMessageError> {
-        execute_dequeue_message(&self.postgres_repository, command).await
+        execute_dequeue_message(&self.queue_repository, command).await
     }
 
     async fn acknowledge_message(
         &self,
         command: AcknowledgeMessageCommand,
     ) -> Result<(), AcknowledgeMessageError> {
-        let queue_id = command.queue_id();
-        let message = match execute_acknowledge_message(
-            &self.queue_name_repository,
-            &self.postgres_repository,
-            command,
-        )
-        .await
-        {
-            Ok(message) => message,
-            Err(error @ AcknowledgeMessageError::QueueNotFound) => {
-                self.queue_name_repository
-                    .invalidate_queue_name(queue_id)
-                    .await;
-
-                return Err(error);
-            }
-            Err(error) => return Err(error),
-        };
+        let message = execute_acknowledge_message(&self.queue_repository, command).await?;
 
         self.instrumentation
             .commands()
@@ -178,7 +168,7 @@ impl QueueModule {
         batch_size: u32,
     ) -> Result<TimeoutProcessingSummary, ProcessTimedOutMessagesError> {
         let summary =
-            execute_process_timed_out_messages(&self.postgres_repository, batch_size).await?;
+            execute_process_timed_out_messages(&self.queue_repository, batch_size).await?;
         let metrics = self.instrumentation.visibility_timeout();
 
         for queue in summary.per_queue() {
@@ -193,8 +183,7 @@ impl QueueModule {
         &self,
         batch_size: u32,
     ) -> Result<ExpiredMessagesCleanupSummary, ProcessExpiredMessagesError> {
-        let summary =
-            execute_process_expired_messages(&self.postgres_repository, batch_size).await?;
+        let summary = execute_process_expired_messages(&self.queue_repository, batch_size).await?;
         let metrics = self.instrumentation.expired_message_cleaner();
 
         for queue in summary.per_queue() {
@@ -217,7 +206,7 @@ impl QueueModule {
     async fn try_acquire_state_collector_lease(
         &self,
     ) -> Result<Option<QueueStateCollectorLease>, anyhow::Error> {
-        self.postgres_repository.try_acquire_collector_lease().await
+        self.state_collector.try_acquire_lease().await
     }
 
     async fn refresh_state_metrics(
@@ -226,7 +215,7 @@ impl QueueModule {
     ) -> Result<(), anyhow::Error> {
         let metrics = self.instrumentation.state();
         let started = Instant::now();
-        let result = self.postgres_repository.queue_state(lease).await;
+        let result = self.state_collector.collect(lease).await;
 
         match result {
             Ok(snapshot) => {

@@ -6,7 +6,9 @@ use std::path::Path;
 use validator::Validate;
 
 pub(crate) use error::ConfigurationError;
-pub(crate) use schema::{AppConfiguration, CachePolicyConfig, DatabaseConfig, LogFormat};
+pub(crate) use schema::{
+    AppConfiguration, DatabaseConfig, DistributedCacheConfig, InMemoryCacheConfig, LogFormat,
+};
 
 pub(crate) fn load(config_path: Option<&Path>) -> Result<AppConfiguration, ConfigurationError> {
     load_with_environment(config_path, environment_source())

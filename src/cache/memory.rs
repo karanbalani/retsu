@@ -154,9 +154,4 @@ where
         self.inner.insert(key, value).await;
         Ok(())
     }
-
-    async fn invalidate(&self, key: &K) -> Result<(), CacheError> {
-        self.inner.invalidate(key).await;
-        Ok(())
-    }
 }

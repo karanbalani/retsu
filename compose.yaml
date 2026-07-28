@@ -59,6 +59,26 @@ services:
       - backend
     logging: *default-logging
 
+  dragonfly:
+    image: docker.dragonflydb.io/dragonflydb/dragonfly:v1.38.0
+    labels:
+      retsu.observability.component: distributed-cache
+    command:
+      - --cache_mode=true
+      - --maxmemory=256mb
+      - --proactor_threads=1
+      - --primary_port_http_enabled=false
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    ports:
+      - "127.0.0.1:${RETSU_LOCAL_DISTRIBUTED_CACHE_PORT:-24251}:6379"
+    stop_grace_period: 5s
+    networks:
+      - backend
+    logging: *default-logging
+
   cadvisor:
     image: ghcr.io/google/cadvisor:v0.60.5
     profiles:

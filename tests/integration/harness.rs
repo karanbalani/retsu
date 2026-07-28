@@ -15,19 +15,28 @@ use sqlx::{PgPool, postgres::PgPoolOptions};
 use tempfile::TempDir;
 use testcontainers_modules::{
     postgres::Postgres,
-    testcontainers::{ContainerAsync, ImageExt, runners::AsyncRunner},
+    testcontainers::{
+        ContainerAsync, GenericImage, ImageExt,
+        core::{IntoContainerPort, WaitFor},
+        runners::AsyncRunner,
+    },
 };
 use uuid::Uuid;
 
 const PROCESS_START_TIMEOUT: Duration = Duration::from_secs(20);
 const POSTGRES_PORT: u16 = 5432;
+const DISTRIBUTED_CACHE_PORT: u16 = 6379;
+const DRAGONFLY_IMAGE: &str = "docker.dragonflydb.io/dragonflydb/dragonfly";
+const DRAGONFLY_TAG: &str = "v1.38.0";
 
 pub struct IntegrationSystem {
     processes: Vec<ManagedProcess>,
     database_pool: PgPool,
     _postgres: ContainerAsync<Postgres>,
+    _distributed_cache: ContainerAsync<GenericImage>,
     log_directory: TempDir,
     database_url: String,
+    distributed_cache_url: String,
     api_base_url: String,
     client: Client,
 }
@@ -44,6 +53,15 @@ pub struct DequeuedMessage {
     pub priority: String,
     pub receipt_handle: Uuid,
     pub delivery_attempts: u16,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct QueueDetails {
+    pub id: Uuid,
+    pub name: String,
+    pub visibility_timeout_seconds: u32,
+    pub max_delivery_attempts: u16,
+    pub default_message_ttl_seconds: u32,
 }
 
 #[derive(Deserialize)]
@@ -82,6 +100,29 @@ impl IntegrationSystem {
             .context("failed to resolve the PostgreSQL container port")?;
         let database_url = format!("postgres://postgres:postgres@{host}:{port}/postgres");
 
+        let distributed_cache = GenericImage::new(DRAGONFLY_IMAGE, DRAGONFLY_TAG)
+            .with_exposed_port(DISTRIBUTED_CACHE_PORT.tcp())
+            .with_wait_for(WaitFor::healthcheck())
+            .with_cmd([
+                "--cache_mode=true",
+                "--maxmemory=256mb",
+                "--proactor_threads=1",
+                "--primary_port_http_enabled=false",
+            ])
+            .start()
+            .await
+            .context("failed to start Dragonfly through Testcontainers")?;
+        let distributed_cache_host = distributed_cache
+            .get_host()
+            .await
+            .context("failed to resolve the distributed-cache container host")?;
+        let distributed_cache_port = distributed_cache
+            .get_host_port_ipv4(DISTRIBUTED_CACHE_PORT)
+            .await
+            .context("failed to resolve the distributed-cache container port")?;
+        let distributed_cache_url =
+            format!("redis://{distributed_cache_host}:{distributed_cache_port}");
+
         run_migrations(&database_url)?;
 
         let database_pool = PgPoolOptions::new()
@@ -101,6 +142,7 @@ impl IntegrationSystem {
             "api",
             &["api"],
             &database_url,
+            &distributed_cache_url,
             &[("RETSU_HTTP__PORT", api_port.to_string())],
             log_directory.path(),
         )?;
@@ -111,8 +153,10 @@ impl IntegrationSystem {
             processes: vec![api],
             database_pool,
             _postgres: postgres,
+            _distributed_cache: distributed_cache,
             log_directory,
             database_url,
+            distributed_cache_url,
             api_base_url,
             client,
         })
@@ -125,6 +169,7 @@ impl IntegrationSystem {
             name,
             &["worker", "run", "queue", name],
             &self.database_url,
+            &self.distributed_cache_url,
             &[(
                 "RETSU_WORKER__MANAGEMENT__PORT",
                 management_port.to_string(),
@@ -182,6 +227,29 @@ impl IntegrationSystem {
             serde_json::from_str(&body).context("create queue response was not valid JSON")?;
 
         Ok(response.id)
+    }
+
+    pub async fn update_queue(
+        &self,
+        queue_id: Uuid,
+        visibility_timeout_seconds: Option<u32>,
+        max_delivery_attempts: Option<u16>,
+        default_message_ttl_seconds: Option<u32>,
+    ) -> anyhow::Result<QueueDetails> {
+        let response = self
+            .client
+            .patch(format!("{}/v1/queues/{queue_id}", self.api_base_url))
+            .json(&json!({
+                "visibility_timeout_seconds": visibility_timeout_seconds,
+                "max_delivery_attempts": max_delivery_attempts,
+                "default_message_ttl_seconds": default_message_ttl_seconds,
+            }))
+            .send()
+            .await
+            .context("queue update request failed")?;
+
+        let body = expect_body(response, StatusCode::OK, "update queue").await?;
+        serde_json::from_str(&body).context("update queue response was not valid JSON")
     }
 
     pub async fn enqueue_message(
@@ -302,6 +370,63 @@ impl IntegrationSystem {
             .context("failed to inspect active message persistence")
     }
 
+    pub async fn insert_queue(
+        &self,
+        name: &str,
+        visibility_timeout_seconds: u32,
+        max_delivery_attempts: u16,
+        default_message_ttl_seconds: u32,
+    ) -> anyhow::Result<Uuid> {
+        let queue_id = Uuid::now_v7();
+
+        sqlx::query(
+            r#"
+            INSERT INTO queue (
+                id,
+                name,
+                visibility_timeout_seconds,
+                max_delivery_attempts,
+                default_message_ttl_seconds
+            )
+            VALUES ($1, $2, $3, $4, $5)
+            "#,
+        )
+        .bind(queue_id)
+        .bind(name)
+        .bind(i32::try_from(visibility_timeout_seconds)?)
+        .bind(i16::try_from(max_delivery_attempts)?)
+        .bind(i32::try_from(default_message_ttl_seconds)?)
+        .execute(&self.database_pool)
+        .await
+        .context("failed to insert an integration-test queue")?;
+
+        Ok(queue_id)
+    }
+
+    pub async fn distributed_queue_details(
+        &self,
+        queue_id: Uuid,
+    ) -> anyhow::Result<Option<serde_json::Value>> {
+        let client = redis::Client::open(self.distributed_cache_url.as_str())
+            .context("failed to configure the integration-test distributed-cache client")?;
+        let mut connection = client
+            .get_connection_manager()
+            .await
+            .context("failed to connect to the integration-test distributed cache")?;
+        let value: Option<Vec<u8>> = redis::cmd("GET")
+            .arg(format!("retsu:queue_details:{queue_id}"))
+            .query_async(&mut connection)
+            .await
+            .context("failed to read queue details from the distributed cache")?;
+
+        value
+            .map(|value| {
+                serde_json::from_slice(&value)
+                    .context("distributed queue details were not valid JSON")
+            })
+            .transpose()
+    }
+
     pub async fn dead_letter_reason(&self, message_id: Uuid) -> anyhow::Result<Option<String>> {
         sqlx::query_scalar("SELECT reason FROM queue_dead_letter_message WHERE id = $1")
             .bind(message_id)
@@ -347,7 +472,7 @@ where
 }
 
 fn run_migrations(database_url: &str) -> anyhow::Result<()> {
-    let output = base_command(database_url)
+    let output = base_command(database_url, None)
         .args(["migrate"])
         .output()
         .context("failed to start the migration process")?;
@@ -367,6 +492,7 @@ fn spawn_retsu(
     name: &str,
     arguments: &[&str],
     database_url: &str,
+    distributed_cache_url: &str,
     environment: &[(&str, String)],
     log_directory: &Path,
 ) -> anyhow::Result<ManagedProcess> {
@@ -377,7 +503,7 @@ fn spawn_retsu(
         .try_clone()
         .with_context(|| format!("failed to clone process log {}", log_path.display()))?;
 
-    let mut command = base_command(database_url);
+    let mut command = base_command(database_url, Some(distributed_cache_url));
     command.args(arguments);
 
     for (key, value) in environment {
@@ -397,7 +523,7 @@ fn spawn_retsu(
     })
 }
 
-fn base_command(database_url: &str) -> Command {
+fn base_command(database_url: &str, distributed_cache_url: Option<&str>) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_retsu"));
 
     command
@@ -408,6 +534,10 @@ fn base_command(database_url: &str) -> Command {
         .env("RETSU_LOGGING__FILTER", "info")
         .env("RETSU_TELEMETRY__TRACES__ENABLED", "false")
         .env("RETSU_WORKER__SHUTDOWN_TIMEOUT_SECONDS", "2");
+
+    if let Some(distributed_cache_url) = distributed_cache_url {
+        command.env("RETSU_CACHE__DISTRIBUTED__URL", distributed_cache_url);
+    }
 
     command
 }

@@ -1,14 +1,24 @@
 mod memory;
+mod redis_protocol;
 
 use std::{future::Future, sync::Arc};
 
 pub(crate) use memory::{MemoryCache, MemoryCachePolicy};
+pub(crate) use redis_protocol::{RedisProtocolCache, RedisProtocolCommands};
 
 #[derive(Debug, thiserror::Error)]
 #[error("cache backend operation failed")]
 pub(crate) struct CacheError {
     #[source]
     source: anyhow::Error,
+}
+
+impl CacheError {
+    pub(crate) fn new(source: impl Into<anyhow::Error>) -> Self {
+        Self {
+            source: source.into(),
+        }
+    }
 }
 
 pub(crate) trait Cache<K, V>: Clone {
@@ -19,8 +29,6 @@ pub(crate) trait Cache<K, V>: Clone {
         Fut: Future<Output = Result<Option<V>, E>>;
 
     async fn insert(&self, key: K, value: Arc<V>) -> Result<(), CacheError>;
-
-    async fn invalidate(&self, key: &K) -> Result<(), CacheError>;
 }
 
 #[cfg(test)]

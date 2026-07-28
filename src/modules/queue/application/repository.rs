@@ -1,6 +1,8 @@
 use uuid::Uuid;
 
-use super::super::domain::{Message, MessagePriority, Queue};
+use super::super::domain::{
+    Message, MessagePriority, Queue, QueueConfigurationUpdate, QueueDetails,
+};
 
 pub(in crate::modules::queue) enum CreateQueueOutcome {
     Created,
@@ -171,80 +173,19 @@ impl ExpiredMessagesCleanupSummary {
     }
 }
 
-#[derive(Debug)]
-pub(in crate::modules::queue) struct QueuePriorityStateSnapshot {
-    queue_name: String,
-    priority: MessagePriority,
-    ready: u64,
-    in_flight: u64,
-    oldest_ready_age_seconds: f64,
-    oldest_in_flight_age_seconds: f64,
-}
-
-impl QueuePriorityStateSnapshot {
-    pub(in crate::modules::queue) fn new(
-        queue_name: String,
-        priority: MessagePriority,
-        ready: u64,
-        in_flight: u64,
-        oldest_ready_age_seconds: f64,
-        oldest_in_flight_age_seconds: f64,
-    ) -> Self {
-        Self {
-            queue_name,
-            priority,
-            ready,
-            in_flight,
-            oldest_ready_age_seconds,
-            oldest_in_flight_age_seconds,
-        }
-    }
-
-    pub(in crate::modules::queue) fn queue_name(&self) -> &str {
-        &self.queue_name
-    }
-
-    pub(in crate::modules::queue) fn priority(&self) -> MessagePriority {
-        self.priority
-    }
-
-    pub(in crate::modules::queue) fn ready(&self) -> u64 {
-        self.ready
-    }
-
-    pub(in crate::modules::queue) fn in_flight(&self) -> u64 {
-        self.in_flight
-    }
-
-    pub(in crate::modules::queue) fn oldest_ready_age_seconds(&self) -> f64 {
-        self.oldest_ready_age_seconds
-    }
-
-    pub(in crate::modules::queue) fn oldest_in_flight_age_seconds(&self) -> f64 {
-        self.oldest_in_flight_age_seconds
-    }
-}
-
-pub(in crate::modules::queue) trait QueueStateRepository {
-    type CollectorLease;
-
-    async fn try_acquire_collector_lease(
-        &self,
-    ) -> Result<Option<Self::CollectorLease>, anyhow::Error>;
-
-    async fn queue_state(
-        &self,
-        lease: &mut Self::CollectorLease,
-    ) -> Result<Vec<QueuePriorityStateSnapshot>, anyhow::Error>;
-}
-
 pub(in crate::modules::queue) trait QueueRepository {
     async fn create_queue(&self, queue: &Queue) -> Result<CreateQueueOutcome, anyhow::Error>;
 
     async fn queue_name(&self, queue_id: Uuid) -> Result<Option<String>, anyhow::Error>;
-}
 
-pub(in crate::modules::queue) trait MessageRepository {
+    async fn queue_details(&self, queue_id: Uuid) -> Result<Option<QueueDetails>, anyhow::Error>;
+
+    async fn update_queue(
+        &self,
+        queue_id: Uuid,
+        configuration: &QueueConfigurationUpdate,
+    ) -> Result<Option<QueueDetails>, anyhow::Error>;
+
     async fn enqueue_message(
         &self,
         queue_id: Uuid,

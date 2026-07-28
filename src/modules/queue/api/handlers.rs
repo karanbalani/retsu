@@ -6,12 +6,14 @@ use super::{
     super::{
         application::{
             AcknowledgeMessageError, CreateQueueError, DequeueMessageError, EnqueueMessageError,
+            UpdateQueueError,
         },
         domain::{MessageValidationError, QueueSettingsError},
     },
     dto::{
-        AcknowledgeMessageRequest, CreateQueueRequest, CreateQueueResponse, DequeueMessageResponse,
-        EnqueueMessageRequest, EnqueueMessageResponse, MessagePath, QueuePath,
+        AcknowledgeMessageRequest, CreateQueueRequest, DequeueMessageResponse,
+        EnqueueMessageRequest, EnqueueMessageResponse, MessagePath, QueuePath, QueueResponse,
+        UpdateQueueRequest,
     },
 };
 
@@ -25,7 +27,7 @@ pub(super) async fn create_queue(
         .await
         .map_err(map_create_queue_error)?;
 
-    Ok(HttpResponse::Created().json(CreateQueueResponse::from(created_queue)))
+    Ok(HttpResponse::Created().json(QueueResponse::from(created_queue)))
 }
 
 fn map_create_queue_error(error: CreateQueueError) -> ApiError {
@@ -34,17 +36,7 @@ fn map_create_queue_error(error: CreateQueueError) -> ApiError {
             ApiError::bad_request("invalid_queue_name", error.to_string())
         }
 
-        CreateQueueError::InvalidSettings(error @ QueueSettingsError::InvalidVisibilityTimeout) => {
-            ApiError::bad_request("invalid_visibility_timeout", error.to_string())
-        }
-
-        CreateQueueError::InvalidSettings(
-            error @ QueueSettingsError::InvalidMaxDeliveryAttempts,
-        ) => ApiError::bad_request("invalid_max_delivery_attempts", error.to_string()),
-
-        CreateQueueError::InvalidSettings(error @ QueueSettingsError::InvalidDefaultMessageTtl) => {
-            ApiError::bad_request("invalid_default_message_ttl", error.to_string())
-        }
+        CreateQueueError::InvalidSettings(error) => map_queue_settings_error(error),
 
         CreateQueueError::AlreadyExists => ApiError::conflict(
             "queue_already_exists",
@@ -52,6 +44,54 @@ fn map_create_queue_error(error: CreateQueueError) -> ApiError {
         ),
 
         CreateQueueError::Persistence(error) => ApiError::internal(error),
+    }
+}
+
+pub(super) async fn update_queue(
+    context: web::Data<ApplicationContext>,
+    path: web::Path<QueuePath>,
+    request: web::Json<UpdateQueueRequest>,
+) -> Result<HttpResponse, ApiError> {
+    let command = request
+        .into_inner()
+        .into_command(path.into_inner().into_queue_id());
+    let queue = context
+        .queue_module()
+        .update_queue(command)
+        .await
+        .map_err(map_update_queue_error)?;
+
+    Ok(HttpResponse::Ok().json(QueueResponse::from(queue)))
+}
+
+fn map_update_queue_error(error: UpdateQueueError) -> ApiError {
+    match error {
+        UpdateQueueError::NoConfigurationChanges => ApiError::bad_request(
+            "empty_queue_update",
+            "at least one queue configuration field must be provided",
+        ),
+
+        UpdateQueueError::InvalidSettings(error) => map_queue_settings_error(error),
+
+        UpdateQueueError::QueueNotFound => {
+            ApiError::resource_not_found("queue_not_found", "the requested queue does not exist")
+        }
+
+        UpdateQueueError::Persistence(error) => ApiError::internal(error),
+    }
+}
+
+fn map_queue_settings_error(error: QueueSettingsError) -> ApiError {
+    match error {
+        error @ QueueSettingsError::InvalidVisibilityTimeout => {
+            ApiError::bad_request("invalid_visibility_timeout", error.to_string())
+        }
+        error @ QueueSettingsError::InvalidMaxDeliveryAttempts => {
+            ApiError::bad_request("invalid_max_delivery_attempts", error.to_string())
+        }
+        error @ QueueSettingsError::InvalidDefaultMessageTtl => {
+            ApiError::bad_request("invalid_default_message_ttl", error.to_string())
+        }
     }
 }
 

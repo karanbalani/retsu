@@ -1,9 +1,7 @@
 use thiserror::Error;
 use uuid::Uuid;
 
-use super::super::application::{
-    MessageRepository, QueueRepository, repository::AcknowledgeMessageOutcome,
-};
+use super::super::application::{QueueRepository, repository::AcknowledgeMessageOutcome};
 
 #[derive(Debug)]
 pub(in crate::modules::queue) struct AcknowledgeMessageCommand {
@@ -23,10 +21,6 @@ impl AcknowledgeMessageCommand {
             message_id,
             receipt_handle,
         }
-    }
-
-    pub(in crate::modules::queue) fn queue_id(&self) -> Uuid {
-        self.queue_id
     }
 }
 
@@ -50,14 +44,12 @@ impl AcknowledgedMessage {
     ),
     err
 )]
-pub(in crate::modules::queue) async fn execute<Q, M>(
-    queue_repository: &Q,
-    message_repository: &M,
+pub(in crate::modules::queue) async fn execute<R>(
+    repository: &R,
     command: AcknowledgeMessageCommand,
 ) -> Result<AcknowledgedMessage, AcknowledgeMessageError>
 where
-    Q: QueueRepository,
-    M: MessageRepository,
+    R: QueueRepository,
 {
     let AcknowledgeMessageCommand {
         queue_id,
@@ -65,7 +57,7 @@ where
         receipt_handle,
     } = command;
 
-    let queue_name = queue_repository
+    let queue_name = repository
         .queue_name(queue_id)
         .await
         .map_err(AcknowledgeMessageError::Persistence)?
@@ -73,7 +65,7 @@ where
 
     tracing::Span::current().record("queue.name", &queue_name);
 
-    match message_repository
+    match repository
         .acknowledge_message(queue_id, message_id, receipt_handle)
         .await
         .map_err(AcknowledgeMessageError::Persistence)?

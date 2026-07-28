@@ -59,7 +59,16 @@ logging:
     let environment = environment(&[
         ("RETSU_ENVIRONMENT", "staging"),
         ("RETSU_HTTP__PORT", "3200"),
-        ("RETSU_CACHE__QUEUE_NAMES__MAX_CAPACITY_BYTES", "33554432"),
+        ("RETSU_CACHE__IN_MEMORY__ENABLED", "false"),
+        (
+            "RETSU_CACHE__IN_MEMORY__REGIONS__QUEUE_NAMES__MAX_CAPACITY_BYTES",
+            "33554432",
+        ),
+        ("RETSU_CACHE__DISTRIBUTED__ENABLED", "false"),
+        (
+            "RETSU_CACHE__DISTRIBUTED__URL",
+            "redis://cache.internal:6379",
+        ),
         ("RETSU_DATABASE__MAX_CONNECTIONS", "20"),
     ]);
 
@@ -68,10 +77,21 @@ logging:
 
     assert_eq!(configuration.environment, Environment::Staging);
     assert_eq!(configuration.http.port, 3200);
+    assert!(!configuration.cache.in_memory.enabled);
     assert_eq!(
-        configuration.cache.queue_names.max_capacity_bytes,
+        configuration
+            .cache
+            .in_memory
+            .regions
+            .queue_names
+            .max_capacity_bytes,
         33_554_432
     );
+    assert_eq!(
+        configuration.cache.distributed.url,
+        "redis://cache.internal:6379"
+    );
+    assert!(!configuration.cache.distributed.enabled);
     assert_eq!(configuration.database.max_connections, 20);
 }
 
@@ -85,11 +105,30 @@ fn fills_omitted_yaml_values_from_struct_defaults() {
     assert_eq!(configuration.environment, Environment::Local);
     assert_eq!(configuration.http.port, 2424);
     assert_eq!(configuration.telemetry.metrics.max_queues, 10_000);
-    assert_eq!(configuration.cache.queue_names.max_entries, 10_000);
+    assert!(configuration.cache.in_memory.enabled);
     assert_eq!(
-        configuration.cache.queue_names.max_capacity_bytes,
+        configuration
+            .cache
+            .in_memory
+            .regions
+            .queue_names
+            .max_entries,
+        10_000
+    );
+    assert_eq!(
+        configuration
+            .cache
+            .in_memory
+            .regions
+            .queue_names
+            .max_capacity_bytes,
         8_388_608
     );
+    assert_eq!(
+        configuration.cache.distributed.url,
+        "redis://127.0.0.1:24251"
+    );
+    assert!(configuration.cache.distributed.enabled);
     assert_eq!(configuration.database.max_connections, 10);
     assert_eq!(configuration.worker.shutdown_timeout_seconds, 30);
 }

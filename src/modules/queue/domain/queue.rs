@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use uuid::Uuid;
@@ -61,6 +62,108 @@ impl Queue {
     pub(in crate::modules::queue) fn default_message_ttl_seconds(&self) -> u32 {
         self.settings.default_message_ttl_seconds()
     }
+
+    pub(in crate::modules::queue) fn details(&self) -> QueueDetails {
+        QueueDetails::new(
+            self.id,
+            self.name().to_owned(),
+            self.visibility_timeout_seconds(),
+            self.max_delivery_attempts(),
+            self.default_message_ttl_seconds(),
+        )
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub(in crate::modules::queue) struct QueueDetails {
+    id: Uuid,
+    name: String,
+    visibility_timeout_seconds: u32,
+    max_delivery_attempts: u16,
+    default_message_ttl_seconds: u32,
+}
+
+impl QueueDetails {
+    pub(in crate::modules::queue) fn new(
+        id: Uuid,
+        name: String,
+        visibility_timeout_seconds: u32,
+        max_delivery_attempts: u16,
+        default_message_ttl_seconds: u32,
+    ) -> Self {
+        Self {
+            id,
+            name,
+            visibility_timeout_seconds,
+            max_delivery_attempts,
+            default_message_ttl_seconds,
+        }
+    }
+
+    pub(in crate::modules::queue) fn id(&self) -> Uuid {
+        self.id
+    }
+
+    pub(in crate::modules::queue) fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub(in crate::modules::queue) fn visibility_timeout_seconds(&self) -> u32 {
+        self.visibility_timeout_seconds
+    }
+
+    pub(in crate::modules::queue) fn max_delivery_attempts(&self) -> u16 {
+        self.max_delivery_attempts
+    }
+
+    pub(in crate::modules::queue) fn default_message_ttl_seconds(&self) -> u32 {
+        self.default_message_ttl_seconds
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(in crate::modules::queue) struct QueueConfigurationUpdate {
+    visibility_timeout_seconds: Option<u32>,
+    max_delivery_attempts: Option<u16>,
+    default_message_ttl_seconds: Option<u32>,
+}
+
+impl QueueConfigurationUpdate {
+    pub(in crate::modules::queue) fn new(
+        visibility_timeout_seconds: Option<u32>,
+        max_delivery_attempts: Option<u16>,
+        default_message_ttl_seconds: Option<u32>,
+    ) -> Result<Self, QueueSettingsError> {
+        if let Some(value) = visibility_timeout_seconds {
+            QueueSettings::validate_visibility_timeout(value)?;
+        }
+
+        if let Some(value) = max_delivery_attempts {
+            QueueSettings::validate_max_delivery_attempts(value)?;
+        }
+
+        if let Some(value) = default_message_ttl_seconds {
+            QueueSettings::validate_default_message_ttl(value)?;
+        }
+
+        Ok(Self {
+            visibility_timeout_seconds,
+            max_delivery_attempts,
+            default_message_ttl_seconds,
+        })
+    }
+
+    pub(in crate::modules::queue) fn visibility_timeout_seconds(&self) -> Option<u32> {
+        self.visibility_timeout_seconds
+    }
+
+    pub(in crate::modules::queue) fn max_delivery_attempts(&self) -> Option<u16> {
+        self.max_delivery_attempts
+    }
+
+    pub(in crate::modules::queue) fn default_message_ttl_seconds(&self) -> Option<u32> {
+        self.default_message_ttl_seconds
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -115,28 +218,14 @@ impl QueueSettings {
     ) -> Result<Self, QueueSettingsError> {
         let visibility_timeout_seconds =
             visibility_timeout_seconds.unwrap_or(DEFAULT_VISIBILITY_TIMEOUT_SECONDS);
-
-        if !(MIN_VISIBILITY_TIMEOUT_SECONDS..=MAX_VISIBILITY_TIMEOUT_SECONDS)
-            .contains(&visibility_timeout_seconds)
-        {
-            return Err(QueueSettingsError::InvalidVisibilityTimeout);
-        }
+        Self::validate_visibility_timeout(visibility_timeout_seconds)?;
 
         let max_delivery_attempts = max_delivery_attempts.unwrap_or(DEFAULT_MAX_DELIVERY_ATTEMPTS);
-
-        if !(MIN_MAX_DELIVERY_ATTEMPTS..=MAX_MAX_DELIVERY_ATTEMPTS).contains(&max_delivery_attempts)
-        {
-            return Err(QueueSettingsError::InvalidMaxDeliveryAttempts);
-        }
+        Self::validate_max_delivery_attempts(max_delivery_attempts)?;
 
         let default_message_ttl_seconds =
             default_message_ttl_seconds.unwrap_or(DEFAULT_MESSAGE_TTL_SECONDS);
-
-        if !(MIN_MESSAGE_TTL_SECONDS..=MAX_MESSAGE_TTL_SECONDS)
-            .contains(&default_message_ttl_seconds)
-        {
-            return Err(QueueSettingsError::InvalidDefaultMessageTtl);
-        }
+        Self::validate_default_message_ttl(default_message_ttl_seconds)?;
 
         Ok(Self {
             visibility_timeout_seconds,
@@ -155,6 +244,30 @@ impl QueueSettings {
 
     fn default_message_ttl_seconds(&self) -> u32 {
         self.default_message_ttl_seconds
+    }
+
+    fn validate_visibility_timeout(value: u32) -> Result<(), QueueSettingsError> {
+        if !(MIN_VISIBILITY_TIMEOUT_SECONDS..=MAX_VISIBILITY_TIMEOUT_SECONDS).contains(&value) {
+            return Err(QueueSettingsError::InvalidVisibilityTimeout);
+        }
+
+        Ok(())
+    }
+
+    fn validate_max_delivery_attempts(value: u16) -> Result<(), QueueSettingsError> {
+        if !(MIN_MAX_DELIVERY_ATTEMPTS..=MAX_MAX_DELIVERY_ATTEMPTS).contains(&value) {
+            return Err(QueueSettingsError::InvalidMaxDeliveryAttempts);
+        }
+
+        Ok(())
+    }
+
+    fn validate_default_message_ttl(value: u32) -> Result<(), QueueSettingsError> {
+        if !(MIN_MESSAGE_TTL_SECONDS..=MAX_MESSAGE_TTL_SECONDS).contains(&value) {
+            return Err(QueueSettingsError::InvalidDefaultMessageTtl);
+        }
+
+        Ok(())
     }
 }
 

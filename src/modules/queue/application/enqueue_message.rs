@@ -3,7 +3,7 @@ use tracing::field;
 use uuid::Uuid;
 
 use super::super::{
-    application::repository::{EnqueueMessageOutcome, MessageRepository, QueueRepository},
+    application::repository::{EnqueueMessageOutcome, QueueRepository},
     domain::{Message, MessagePriority, MessageValidationError},
 };
 
@@ -29,10 +29,6 @@ impl EnqueueMessageCommand {
             ttl_seconds,
         }
     }
-
-    pub(in crate::modules::queue) fn queue_id(&self) -> Uuid {
-        self.queue_id
-    }
 }
 
 #[derive(Debug)]
@@ -57,14 +53,12 @@ impl EnqueuedMessage {
 }
 
 #[tracing::instrument(name = "queue.enqueue", skip_all, fields(queue.id = %command.queue_id, queue.name = field::Empty, message.id = field::Empty, message.priority = field::Empty), err)]
-pub(in crate::modules::queue) async fn execute<Q, M>(
-    queue_repository: &Q,
-    message_repository: &M,
+pub(in crate::modules::queue) async fn execute<R>(
+    repository: &R,
     command: EnqueueMessageCommand,
 ) -> Result<EnqueuedMessage, EnqueueMessageError>
 where
-    Q: QueueRepository,
-    M: MessageRepository,
+    R: QueueRepository,
 {
     let EnqueueMessageCommand {
         queue_id,
@@ -76,7 +70,7 @@ where
     let message =
         Message::new(payload, priority, ttl_seconds).map_err(EnqueueMessageError::from)?;
 
-    let queue_name = queue_repository
+    let queue_name = repository
         .queue_name(queue_id)
         .await
         .map_err(EnqueueMessageError::Persistence)?
@@ -85,7 +79,7 @@ where
     tracing::Span::current().record("queue.name", &queue_name);
     tracing::Span::current().record("message.priority", message.priority().as_str());
 
-    match message_repository
+    match repository
         .enqueue_message(queue_id, &message)
         .await
         .map_err(EnqueueMessageError::Persistence)?
@@ -114,7 +108,3 @@ pub(in crate::modules::queue) enum EnqueueMessageError {
     #[error("failed to persist the message")]
     Persistence(#[source] anyhow::Error),
 }
-
-#[cfg(test)]
-#[path = "../tests/application_enqueue_message.rs"]
-mod tests;

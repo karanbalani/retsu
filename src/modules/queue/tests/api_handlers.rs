@@ -4,8 +4,8 @@ use serde_json::Value;
 use super::{
     super::super::domain::{MessageValidationError, QueueNameError},
     AcknowledgeMessageError, CreateQueueError, DequeueMessageError, EnqueueMessageError,
-    QueueSettingsError, map_acknowledge_message_error, map_create_queue_error,
-    map_dequeue_message_error, map_enqueue_message_error,
+    QueueSettingsError, UpdateQueueError, map_acknowledge_message_error, map_create_queue_error,
+    map_dequeue_message_error, map_enqueue_message_error, map_update_queue_error,
 };
 
 #[actix_web::test]
@@ -34,6 +34,23 @@ async fn maps_queue_failures_to_stable_http_error_codes() {
             map_create_queue_error(CreateQueueError::AlreadyExists),
             StatusCode::CONFLICT,
             "queue_already_exists",
+        ),
+        (
+            map_update_queue_error(UpdateQueueError::NoConfigurationChanges),
+            StatusCode::BAD_REQUEST,
+            "empty_queue_update",
+        ),
+        (
+            map_update_queue_error(UpdateQueueError::InvalidSettings(
+                QueueSettingsError::InvalidDefaultMessageTtl,
+            )),
+            StatusCode::BAD_REQUEST,
+            "invalid_default_message_ttl",
+        ),
+        (
+            map_update_queue_error(UpdateQueueError::QueueNotFound),
+            StatusCode::NOT_FOUND,
+            "queue_not_found",
         ),
         (
             map_enqueue_message_error(EnqueueMessageError::InvalidMessage(

@@ -200,7 +200,6 @@ Stop the leader with `Ctrl-C`. Within about 15 seconds, the standby should log t
 
 ## Main implementation files
 
-- `src/modules/queue/application/repository.rs` defines the abstract collector lease.
-- `src/modules/queue/infrastructure/postgres.rs` acquires the advisory lock and keeps its connection.
-- `src/modules/queue/mod.rs` passes the lease through the queue boundary.
+- `src/modules/queue/infrastructure/state_collector.rs` owns the advisory lock, lease, and state query.
+- `src/modules/queue/mod.rs` wires the PostgreSQL state collector beside the cached queue repository.
 - `src/modules/queue/worker/state_metrics_collector.rs` implements standby, leader, and refresh loops.

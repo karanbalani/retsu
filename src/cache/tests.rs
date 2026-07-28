@@ -115,36 +115,6 @@ async fn does_not_cache_missing_values_or_loader_errors() {
 }
 
 #[tokio::test]
-async fn reloads_after_explicit_invalidation() {
-    let cache = cache();
-    let loads = AtomicUsize::new(0);
-
-    let load = || async {
-        let value = loads.fetch_add(1, Ordering::Relaxed) + 1;
-        Ok::<_, anyhow::Error>(Some(format!("value-{value}")))
-    };
-
-    let first = cache
-        .get_or_load(42, load)
-        .await
-        .expect("initial load should succeed")
-        .expect("initial load should return a value");
-    assert_eq!(first.as_str(), "value-1");
-
-    cache
-        .invalidate(&42)
-        .await
-        .expect("invalidation should succeed");
-
-    let second = cache
-        .get_or_load(42, load)
-        .await
-        .expect("invalidated value should reload")
-        .expect("reload should return a value");
-    assert_eq!(second.as_str(), "value-2");
-}
-
-#[tokio::test]
 async fn explicit_insert_replaces_the_cached_value() {
     let cache = cache();
 

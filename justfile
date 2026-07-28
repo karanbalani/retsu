@@ -86,14 +86,14 @@ db-observability-init:
     docker compose exec -T postgres \
         sh /docker-entrypoint-initdb.d/observability.sh
 
-# Start PostgreSQL only and wait until healthy.
+# Start PostgreSQL and the distributed cache, then wait until healthy.
 db-up:
-    docker compose up -d --wait postgres
+    docker compose up -d --wait postgres dragonfly
     just db-observability-init
 
-# Stop PostgreSQL without deleting its data.
+# Stop PostgreSQL and the distributed cache without deleting PostgreSQL data.
 db-stop:
-    docker compose stop postgres
+    docker compose stop postgres dragonfly
 
 # Open psql inside the PostgreSQL container.
 db-shell:
