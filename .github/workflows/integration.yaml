@@ -2,11 +2,17 @@ name: Integration Tests
 
 on:
   pull_request:
-    types:
-      - labeled
-  push:
-    branches:
-      - main
+    paths:
+      - .dockerignore
+      - .github/workflows/integration.yaml
+      - Cargo.lock
+      - Cargo.toml
+      - Dockerfile
+      - build.rs
+      - migrations/**
+      - rust-toolchain.toml
+      - src/**
+      - tests/container-runtime.sh
 
 permissions:
   contents: read
@@ -16,39 +22,35 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  CARGO_TERM_COLOR: always
-  CARGO_INCREMENTAL: "0"
+  TEST_IMAGE: retsu-pr-integration:${{ github.sha }}
 
 jobs:
   integration:
-    name: Integration tests
-    if: >-
-      github.event_name == 'push' ||
-      github.event.label.name == 'run-integration-tests'
+    name: Container image integration
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
 
-      - name: Activate pinned Rust toolchain
-        run: |
-          rustc --version
-          cargo --version
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      - name: Restore Rust dependency and build cache
-        uses: actions/cache@v6
+      - name: Build local production image
+        uses: docker/build-push-action@v6
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: rust-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml') }}-${{ hashFiles('Cargo.lock') }}
-          restore-keys: |
-            rust-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml') }}-
+          context: .
+          load: true
+          platforms: linux/amd64
+          push: false
+          tags: ${{ env.TEST_IMAGE }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-      - name: Run integration tests
-        run: >-
-          cargo test --locked --test integration --all-features
-          -- --test-threads=1
+      - name: Run container image integration test
+        run: bash tests/container-runtime.sh "${TEST_IMAGE}"
+
+      - name: Remove local test image
+        if: always()
+        run: docker image rm --force "${TEST_IMAGE}" || true
