@@ -8,8 +8,7 @@ use crate::cache::{Cache, MemoryCache};
 use super::super::{
     application::{
         AcknowledgeMessageOutcome, CreateQueueOutcome, DequeueMessageOutcome,
-        EnqueueMessageOutcome, ExpiredMessagesCleanupSummary, QueueRepository,
-        TimeoutProcessingSummary,
+        ExpiredMessagesCleanupSummary, QueueRepository, TimeoutProcessingSummary,
     },
     domain::{Message, Queue, QueueConfigurationUpdate, QueueDetails},
 };
@@ -98,8 +97,11 @@ where
         &self,
         queue_id: Uuid,
         message: &Message,
-    ) -> Result<EnqueueMessageOutcome, anyhow::Error> {
-        self.source.enqueue_message(queue_id, message).await
+        effective_ttl_seconds: u32,
+    ) -> Result<(), anyhow::Error> {
+        self.source
+            .enqueue_message(queue_id, message, effective_ttl_seconds)
+            .await
     }
 
     async fn dequeue_message(

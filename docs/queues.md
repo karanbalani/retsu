@@ -138,6 +138,10 @@ The `id` will be different for every message.
 | `priority` | The message priority | `HIGH`, `MEDIUM`, or `LOW` | Required |
 | `ttl_seconds` | Seconds until the message expires | 1–2,592,000 seconds | The queue's `default_message_ttl_seconds` |
 
+Retsu resolves the effective TTL from the message or the distributed
+queue-details cache before writing the message. The insert uses PostgreSQL's
+current timestamp to calculate the expiry and does not read the `queue` table.
+
 ### Message errors
 
 - `400` and `invalid_path`: the queue ID is not a valid UUID.

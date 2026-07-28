@@ -34,6 +34,19 @@ async fn queue_details_are_written_through_and_read_through_dragonfly() -> anyho
     assert_eq!(updated_details["found"]["max_delivery_attempts"], 7);
     assert_eq!(updated_details["found"]["default_message_ttl_seconds"], 900);
 
+    let write_through_default_id = system
+        .enqueue_message(created_id, "write-through-default", "MEDIUM", None)
+        .await?;
+    assert_eq!(
+        system.message_ttl_seconds(write_through_default_id).await?,
+        900.0
+    );
+
+    let explicit_ttl_id = system
+        .enqueue_message(created_id, "explicit-ttl", "MEDIUM", Some(30))
+        .await?;
+    assert_eq!(system.message_ttl_seconds(explicit_ttl_id).await?, 30.0);
+
     let inserted_name = unique_queue_name("cache-read-through");
     let inserted_id = system.insert_queue(&inserted_name, 60, 9, 600).await?;
     assert!(
@@ -44,9 +57,13 @@ async fn queue_details_are_written_through_and_read_through_dragonfly() -> anyho
         "direct database insert should start outside the cache"
     );
 
-    system
+    let read_through_default_id = system
         .enqueue_message(inserted_id, "populate-cache", "MEDIUM", None)
         .await?;
+    assert_eq!(
+        system.message_ttl_seconds(read_through_default_id).await?,
+        600.0
+    );
 
     let inserted_details = system
         .distributed_queue_details(inserted_id)

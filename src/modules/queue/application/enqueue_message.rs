@@ -3,7 +3,7 @@ use tracing::field;
 use uuid::Uuid;
 
 use super::super::{
-    application::repository::{EnqueueMessageOutcome, QueueRepository},
+    application::repository::QueueRepository,
     domain::{Message, MessagePriority, MessageValidationError},
 };
 
@@ -70,29 +70,28 @@ where
     let message =
         Message::new(payload, priority, ttl_seconds).map_err(EnqueueMessageError::from)?;
 
-    let queue_name = repository
-        .queue_name(queue_id)
+    let queue = repository
+        .queue_details(queue_id)
         .await
         .map_err(EnqueueMessageError::Persistence)?
         .ok_or(EnqueueMessageError::QueueNotFound)?;
+    let effective_ttl_seconds = message
+        .ttl_seconds()
+        .unwrap_or_else(|| queue.default_message_ttl_seconds());
 
-    tracing::Span::current().record("queue.name", &queue_name);
+    tracing::Span::current().record("queue.name", queue.name());
     tracing::Span::current().record("message.priority", message.priority().as_str());
 
-    match repository
-        .enqueue_message(queue_id, &message)
+    repository
+        .enqueue_message(queue_id, &message, effective_ttl_seconds)
         .await
-        .map_err(EnqueueMessageError::Persistence)?
-    {
-        EnqueueMessageOutcome::Enqueued => {}
-        EnqueueMessageOutcome::QueueNotFound => return Err(EnqueueMessageError::QueueNotFound),
-    }
+        .map_err(EnqueueMessageError::Persistence)?;
 
     tracing::Span::current().record("message.id", field::display(message.id()));
 
     Ok(EnqueuedMessage {
         id: message.id(),
-        queue_name,
+        queue_name: queue.name().to_owned(),
         priority: message.priority(),
     })
 }

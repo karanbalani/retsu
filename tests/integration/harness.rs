@@ -336,6 +336,22 @@ impl IntegrationSystem {
             .context("failed to inspect active message persistence")
     }
 
+    pub async fn message_ttl_seconds(&self, message_id: Uuid) -> anyhow::Result<f64> {
+        sqlx::query_scalar(
+            r#"
+            SELECT EXTRACT(
+                EPOCH FROM (expires_at - enqueued_at)
+            )::DOUBLE PRECISION
+            FROM queue_message
+            WHERE id = $1
+            "#,
+        )
+        .bind(message_id)
+        .fetch_one(&self.database_pool)
+        .await
+        .context("failed to inspect persisted message TTL")
+    }
+
     pub async fn insert_queue(
         &self,
         name: &str,
