@@ -1,0 +1,138 @@
+name: Benchmark
+run-name: Benchmark ${{ github.ref_name }} (${{ inputs.mode }})
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Measurement depth
+        type: choice
+        required: true
+        default: standard
+        options:
+          - standard
+          - thorough
+
+permissions:
+  contents: read
+
+concurrency:
+  group: benchmark-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  compare:
+    name: Compare with branch base
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out candidate
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Restore Rust dependency and build cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: benchmark-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml') }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            benchmark-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml') }}-
+
+      - name: Configure measurement depth
+        env:
+          MODE: ${{ inputs.mode }}
+        run: |
+          if [[ "$MODE" == "thorough" ]]; then
+            echo "BENCHMARK_SAMPLE_SIZE=200" >> "$GITHUB_ENV"
+            echo "BENCHMARK_WARM_UP_SECONDS=5" >> "$GITHUB_ENV"
+            echo "BENCHMARK_MEASUREMENT_SECONDS=15" >> "$GITHUB_ENV"
+          else
+            echo "BENCHMARK_SAMPLE_SIZE=100" >> "$GITHUB_ENV"
+            echo "BENCHMARK_WARM_UP_SECONDS=3" >> "$GITHUB_ENV"
+            echo "BENCHMARK_MEASUREMENT_SECONDS=5" >> "$GITHUB_ENV"
+          fi
+
+      - name: Resolve comparison commits
+        run: |
+          git fetch --no-tags origin main
+
+          candidate_sha="$GITHUB_SHA"
+          base_sha="$(git merge-base "$candidate_sha" origin/main)"
+
+          echo "CANDIDATE_SHA=$candidate_sha" >> "$GITHUB_ENV"
+          echo "BASE_SHA=$base_sha" >> "$GITHUB_ENV"
+
+      - name: Verify benchmark definitions are unchanged
+        run: |
+          if ! git diff --quiet "$BASE_SHA" "$CANDIDATE_SHA" -- \
+            benches \
+            tests/integration/harness.rs
+          then
+            echo "::error::Benchmark definitions differ between the base and candidate commits."
+            echo "Rebase the benchmark definition separately before comparing application code."
+            exit 1
+          fi
+
+      - name: Measure base
+        run: |
+          git switch --detach "$BASE_SHA"
+          cargo bench --locked --bench message_lifecycle -- \
+            --save-baseline base \
+            --sample-size "$BENCHMARK_SAMPLE_SIZE" \
+            --warm-up-time "$BENCHMARK_WARM_UP_SECONDS" \
+            --measurement-time "$BENCHMARK_MEASUREMENT_SECONDS" \
+            --noplot
+
+      - name: Measure candidate
+        run: |
+          git switch --detach "$CANDIDATE_SHA"
+          cargo bench --locked --bench message_lifecycle -- \
+            --baseline base \
+            --sample-size "$BENCHMARK_SAMPLE_SIZE" \
+            --warm-up-time "$BENCHMARK_WARM_UP_SECONDS" \
+            --measurement-time "$BENCHMARK_MEASUREMENT_SECONDS"
+
+          mkdir -p "$RUNNER_TEMP/benchmark-results"
+          cp -R target/criterion "$RUNNER_TEMP/benchmark-results/candidate"
+
+      - name: Measure same-code control
+        run: |
+          git switch --detach "$BASE_SHA"
+          cargo bench --locked --bench message_lifecycle -- \
+            --baseline base \
+            --sample-size "$BENCHMARK_SAMPLE_SIZE" \
+            --warm-up-time "$BENCHMARK_WARM_UP_SECONDS" \
+            --measurement-time "$BENCHMARK_MEASUREMENT_SECONDS" \
+            --noplot
+
+          cp -R target/criterion "$RUNNER_TEMP/benchmark-results/control"
+
+      - name: Write benchmark summary
+        env:
+          MODE: ${{ inputs.mode }}
+        run: |
+          python3 scripts/benchmark_summary.py \
+            --criterion-directory "$RUNNER_TEMP/benchmark-results/candidate" \
+            --control-directory "$RUNNER_TEMP/benchmark-results/control" \
+            --baseline base \
+            --base "$BASE_SHA" \
+            --candidate "$CANDIDATE_SHA" \
+            --mode "$MODE" \
+            >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload detailed Criterion results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-comparison-${{ github.run_id }}
+          path: ${{ runner.temp }}/benchmark-results
+          retention-days: 14
+          if-no-files-found: error
