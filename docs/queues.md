@@ -31,9 +31,9 @@ identify the queue by this stable ID rather than by its name.
 ### Queue settings
 
 The visibility timeout controls how long a returned message can be completed.
-The worker makes timed-out messages available again until the delivery attempt
-limit is reached. Messages that reach the limit are stored separately. The
-default message lifetime controls when messages expire.
+After that time, dequeue can claim the message again until the delivery attempt
+limit is reached. A later dequeue stores messages that reach the limit
+separately. The default message lifetime controls when messages expire.
 
 | Field | What it controls | Accepted value | Default |
 | --- | --- | --- | --- |
@@ -219,21 +219,16 @@ message.
 
 ## Try a timed-out message again
 
-Run the worker alongside the API:
-
-```bash
-just worker queue visibility-timeout-processor
-```
-
 If a returned message is not completed before its visibility timeout, the
-worker makes it available again while its `delivery_attempts` value is below
-the queue's `max_delivery_attempts` setting. A later request can return the
-message with a new `receipt_handle` and a higher `delivery_attempts` value.
-Acknowledging with the old receipt handle has no effect.
+next dequeue request can claim it directly while its `delivery_attempts` value
+is below the queue's `max_delivery_attempts` setting. The returned message has
+a new `receipt_handle` and a higher `delivery_attempts` value. Acknowledging
+with the old receipt handle has no effect.
 
 When a message reaches the delivery attempt limit without being completed,
-Retsu removes it from the active queue and stores it separately. There is no
-API to view or restore these messages yet.
+the next dequeue request removes it from the active queue and stores it
+separately before looking for another deliverable message. There is no API to
+view or restore these messages yet.
 
 ## Remove expired messages
 
@@ -250,11 +245,3 @@ just worker queue expired-message-cleaner
 The cleaner permanently removes expired waiting messages. If a returned message
 expires, the cleaner waits for its visibility timeout to end before removing
 it.
-
-When the visibility timeout worker is already running on the same computer,
-give the cleaner a different management port:
-
-```bash
-RETSU_WORKER__MANAGEMENT__PORT=24250 \
-  just worker queue expired-message-cleaner
-```

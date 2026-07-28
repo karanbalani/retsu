@@ -94,9 +94,7 @@ Run the queue workers and send their activity to the monitoring tools. Give
 each worker a different management port:
 
 ```bash
-just worker-observed queue visibility-timeout-processor
-RETSU_WORKER__MANAGEMENT__PORT=24250 \
-  just worker-observed queue expired-message-cleaner
+just worker-observed queue expired-message-cleaner
 RETSU_WORKER__MANAGEMENT__PORT=24252 \
   just worker-observed queue state-metrics-collector
 ```

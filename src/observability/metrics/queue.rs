@@ -2,9 +2,7 @@ use std::sync::{Arc, OnceLock};
 
 use opentelemetry::metrics::Meter;
 
-use super::{
-    ExpiredMessageCleanerMetrics, QueueCommandMetrics, QueueStateMetrics, VisibilityTimeoutMetrics,
-};
+use super::{ExpiredMessageCleanerMetrics, QueueCommandMetrics, QueueStateMetrics};
 
 #[derive(Clone)]
 pub(crate) struct QueueInstrumentation {
@@ -14,7 +12,6 @@ pub(crate) struct QueueInstrumentation {
 struct QueueInstrumentationInner {
     meter: Meter,
     commands: OnceLock<QueueCommandMetrics>,
-    visibility_timeout: OnceLock<VisibilityTimeoutMetrics>,
     expired_message_cleaner: OnceLock<ExpiredMessageCleanerMetrics>,
     state: OnceLock<QueueStateMetrics>,
 }
@@ -25,7 +22,6 @@ impl QueueInstrumentation {
             inner: Arc::new(QueueInstrumentationInner {
                 meter: meter.clone(),
                 commands: OnceLock::new(),
-                visibility_timeout: OnceLock::new(),
                 expired_message_cleaner: OnceLock::new(),
                 state: OnceLock::new(),
             }),
@@ -36,13 +32,6 @@ impl QueueInstrumentation {
         self.inner
             .commands
             .get_or_init(|| QueueCommandMetrics::new(&self.inner.meter))
-            .clone()
-    }
-
-    pub(crate) fn visibility_timeout(&self) -> VisibilityTimeoutMetrics {
-        self.inner
-            .visibility_timeout
-            .get_or_init(|| VisibilityTimeoutMetrics::new(&self.inner.meter))
             .clone()
     }
 

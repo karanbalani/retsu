@@ -3,8 +3,8 @@
 Use this guide to run Retsu on your computer.
 
 Retsu is still being built. You can create and configure queues, add messages, get the next
-waiting message, and mark it as complete. Timed-out messages can be tried again
-when the worker is running.
+waiting message, and mark it as complete. Timed-out messages become claimable
+again without a background worker.
 
 ## What you need
 
@@ -65,21 +65,10 @@ just worker-modules
 just worker-list queue
 ```
 
-Start the visibility timeout worker in a separate terminal:
+Start the expired message cleaner in another terminal:
 
 ```bash
-just worker queue visibility-timeout-processor
-```
-
-It makes messages available again when they are not completed before their
-visibility timeout.
-
-Start the expired message cleaner in another terminal. Use a different
-management port because each worker has its own health and metrics server:
-
-```bash
-RETSU_WORKER__MANAGEMENT__PORT=24250 \
-  just worker queue expired-message-cleaner
+just worker queue expired-message-cleaner
 ```
 
 The cleaner removes messages after their lifetime ends.
@@ -114,9 +103,7 @@ Run the API or queue worker with activity tracking enabled:
 
 ```bash
 just api-observed
-just worker-observed queue visibility-timeout-processor
-RETSU_WORKER__MANAGEMENT__PORT=24250 \
-  just worker-observed queue expired-message-cleaner
+just worker-observed queue expired-message-cleaner
 RETSU_WORKER__MANAGEMENT__PORT=24252 \
   just worker-observed queue state-metrics-collector
 ```

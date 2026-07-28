@@ -275,15 +275,31 @@ ON queue_message (
 )
 WHERE state = 'READY';
 
-CREATE INDEX idx_queue_message_in_flight_visibility_deadline_queue_id_priority
+CREATE INDEX idx_queue_message_in_flight_available_after_queue_id_priority
 ON queue_message (
-    visibility_deadline,
+    available_after,
     queue_id,
     priority
+)
+INCLUDE (
+    delivery_attempts,
+    expires_at
 )
 WHERE state = 'IN_FLIGHT';
 
 DROP INDEX idx_queue_message_expired_leases;
+
+CREATE INDEX idx_queue_message_in_flight_queue_id_available_after_id
+ON queue_message (
+    queue_id,
+    available_after,
+    id
+)
+INCLUDE (
+    delivery_attempts,
+    expires_at
+)
+WHERE state = 'IN_FLIGHT';
 
 CREATE INDEX idx_queue_message_ready_queue_id_priority_enqueued_at
 ON queue_message (
@@ -300,5 +316,23 @@ ON queue_message (
     priority,
     enqueued_at
 )
-INCLUDE (visibility_deadline)
+INCLUDE (
+    available_after,
+    delivery_attempts,
+    expires_at,
+    enqueue_order
+)
+WHERE state = 'IN_FLIGHT';
+
+CREATE INDEX idx_queue_message_in_flight_retry_dequeue
+ON queue_message (
+    queue_id,
+    priority DESC,
+    enqueue_order ASC
+)
+INCLUDE (
+    available_after,
+    delivery_attempts,
+    expires_at
+)
 WHERE state = 'IN_FLIGHT';

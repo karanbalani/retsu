@@ -18,14 +18,10 @@ fn lists_and_resolves_the_registered_workers() {
     assert_eq!(prepared_output(module_list), "queue\n");
     assert_eq!(
         prepared_output(queue_worker_list),
-        "visibility-timeout-processor\nexpired-message-cleaner\nstate-metrics-collector\n"
+        "expired-message-cleaner\nstate-metrics-collector\n"
     );
 
-    for worker_name in [
-        "visibility-timeout-processor",
-        "expired-message-cleaner",
-        "state-metrics-collector",
-    ] {
+    for worker_name in ["expired-message-cleaner", "state-metrics-collector"] {
         let runtime = prepare(Cli {
             config: Some("custom.yaml".into()),
             command: Command::Worker {
@@ -78,8 +74,7 @@ fn rejects_unknown_worker_selections_with_available_choices() {
             available,
         } if module == "queue"
             && name == "collector"
-            && available
-                == "visibility-timeout-processor, expired-message-cleaner, state-metrics-collector"
+            && available == "expired-message-cleaner, state-metrics-collector"
     ));
 }
 

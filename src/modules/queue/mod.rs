@@ -16,10 +16,9 @@ use application::{
     AcknowledgeMessageCommand, AcknowledgeMessageError, CreateQueueCommand, CreateQueueError,
     DequeueMessageCommand, DequeueMessageError, DequeuedMessage, EnqueueMessageCommand,
     EnqueueMessageError, EnqueuedMessage, ExpiredMessagesCleanupSummary,
-    ProcessExpiredMessagesError, ProcessTimedOutMessagesError, TimeoutProcessingSummary,
-    UpdateQueueCommand, UpdateQueueError, execute_acknowledge_message, execute_create_queue,
-    execute_dequeue_message, execute_enqueue_message, execute_process_expired_messages,
-    execute_process_timed_out_messages, execute_update_queue,
+    ProcessExpiredMessagesError, UpdateQueueCommand, UpdateQueueError, execute_acknowledge_message,
+    execute_create_queue, execute_dequeue_message, execute_enqueue_message,
+    execute_process_expired_messages, execute_update_queue,
 };
 
 use crate::{
@@ -48,10 +47,6 @@ fn queue_name_weight(queue_id: &Uuid, queue_name: &String) -> u32 {
 }
 
 const WORKERS: &[WorkerDefinition] = &[
-    WorkerDefinition::new(
-        worker::VISIBILITY_TIMEOUT_PROCESSOR_NAME,
-        worker::visibility_timeout_registration,
-    ),
     WorkerDefinition::new(
         worker::EXPIRED_MESSAGE_CLEANER_NAME,
         worker::expired_message_cleaner_registration,
@@ -147,7 +142,13 @@ impl QueueModule {
         &self,
         command: DequeueMessageCommand,
     ) -> Result<Option<DequeuedMessage>, DequeueMessageError> {
-        execute_dequeue_message(&self.queue_repository, command).await
+        let result = execute_dequeue_message(&self.queue_repository, command).await?;
+
+        self.instrumentation
+            .commands()
+            .messages_dead_lettered(result.queue_name(), result.dead_lettered());
+
+        Ok(result.message())
     }
 
     async fn acknowledge_message(
@@ -161,22 +162,6 @@ impl QueueModule {
         }
 
         Ok(())
-    }
-
-    async fn process_timed_out_messages(
-        &self,
-        batch_size: u32,
-    ) -> Result<TimeoutProcessingSummary, ProcessTimedOutMessagesError> {
-        let summary =
-            execute_process_timed_out_messages(&self.queue_repository, batch_size).await?;
-        let metrics = self.instrumentation.visibility_timeout();
-
-        for queue in summary.per_queue() {
-            metrics.messages_requeued(queue.queue_name(), queue.requeued());
-            metrics.messages_dead_lettered(queue.queue_name(), queue.dead_lettered());
-        }
-
-        Ok(summary)
     }
 
     async fn process_expired_messages(

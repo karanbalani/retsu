@@ -9,7 +9,7 @@ CREATE TABLE queue_message (
     expires_at TIMESTAMPTZ NOT NULL,
     delivery_attempts SMALLINT NOT NULL DEFAULT 0,
     receipt_handle UUID,
-    visibility_deadline TIMESTAMPTZ,
+    available_after TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_delivered_at TIMESTAMPTZ
 );
 
@@ -38,24 +38,28 @@ CHECK (
     (
         state = 'READY'
         AND receipt_handle IS NULL
-        AND visibility_deadline IS NULL
+        AND last_delivered_at IS NULL
+        AND delivery_attempts = 0
     )
     OR
     (
         state = 'IN_FLIGHT'
         AND receipt_handle IS NOT NULL
-        AND visibility_deadline IS NOT NULL
         AND last_delivered_at IS NOT NULL
+        AND delivery_attempts > 0
     )
 );
 
 ALTER TABLE queue_message
-ADD CONSTRAINT queue_message_visibility_deadline_after_delivery
+ADD CONSTRAINT queue_message_availability_after_enqueue_or_delivery
 CHECK (
-    visibility_deadline IS NULL
+    (
+        last_delivered_at IS NULL
+        AND available_after >= enqueued_at
+    )
     OR (
         last_delivered_at IS NOT NULL
-        AND visibility_deadline > last_delivered_at
+        AND available_after > last_delivered_at
     )
 );
 
@@ -75,7 +79,7 @@ ON queue_message (
 WHERE state = 'READY';
 
 CREATE INDEX idx_queue_message_expired_leases
-ON queue_message (visibility_deadline)
+ON queue_message (available_after)
 WHERE state = 'IN_FLIGHT';
 
 CREATE INDEX idx_queue_message_expiration

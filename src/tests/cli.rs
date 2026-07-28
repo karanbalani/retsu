@@ -10,21 +10,16 @@ fn parses_each_process_mode_and_worker_command() {
 
     assert!(matches!(&api.command, Command::Api));
 
-    let worker = Cli::try_parse_from([
-        "retsu",
-        "worker",
-        "run",
-        "queue",
-        "visibility-timeout-processor",
-    ])
-    .expect("worker run command should parse");
+    let worker =
+        Cli::try_parse_from(["retsu", "worker", "run", "queue", "expired-message-cleaner"])
+            .expect("worker run command should parse");
 
     assert!(matches!(
         &worker.command,
         Command::Worker {
             command: WorkerCommand::Run { module, name },
         } if module.as_str() == "queue"
-            && name.as_str() == "visibility-timeout-processor"
+            && name.as_str() == "expired-message-cleaner"
     ));
 
     let list =
@@ -71,7 +66,7 @@ fn accepts_global_config_before_or_after_worker_selection() {
         "worker",
         "run",
         "queue",
-        "visibility-timeout-processor",
+        "expired-message-cleaner",
         "--config",
         "custom.yaml",
     ])
@@ -84,7 +79,7 @@ fn accepts_global_config_before_or_after_worker_selection() {
         Command::Worker {
             command: WorkerCommand::Run { module, name },
         } if module.as_str() == "queue"
-            && name.as_str() == "visibility-timeout-processor"
+            && name.as_str() == "expired-message-cleaner"
     ));
 
     assert_eq!(before.config, Some(PathBuf::from("custom.yaml")));

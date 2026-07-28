@@ -157,13 +157,21 @@ impl PostgresQueueStateCollector {
                 SELECT
                     message.queue_id,
                     message.priority,
-                    COUNT(*) AS count
+                    COUNT(*) AS count,
+                    COUNT(*) FILTER (
+                        WHERE message.expires_at > CURRENT_TIMESTAMP
+                          AND message.delivery_attempts
+                                < queue.max_delivery_attempts
+                    ) AS retryable_count
                 FROM queue_message AS message
+                JOIN queue
+                    ON queue.id = message.queue_id
                 WHERE message.state = 'IN_FLIGHT'
-                  AND message.visibility_deadline <= CURRENT_TIMESTAMP
+                  AND message.available_after <= CURRENT_TIMESTAMP
                 GROUP BY
                     message.queue_id,
-                    message.priority
+                    message.priority,
+                    queue.max_delivery_attempts
             )
             SELECT
                 queue.name AS queue_name,
@@ -173,6 +181,9 @@ impl PostgresQueueStateCollector {
                     0
                 ) - COALESCE(
                     expired_ready.count,
+                    0
+                ) + COALESCE(
+                    timed_out_in_flight.retryable_count,
                     0
                 ) AS ready,
                 COALESCE(
@@ -216,8 +227,19 @@ impl PostgresQueueStateCollector {
                 FROM queue_message AS message
                 WHERE message.queue_id = queue.id
                   AND message.priority = priorities.priority
-                  AND message.state = 'READY'
-                  AND message.expires_at > CURRENT_TIMESTAMP
+                  AND (
+                      (
+                          message.state = 'READY'
+                          AND message.expires_at > CURRENT_TIMESTAMP
+                      )
+                      OR (
+                          message.state = 'IN_FLIGHT'
+                          AND message.available_after <= CURRENT_TIMESTAMP
+                          AND message.expires_at > CURRENT_TIMESTAMP
+                          AND message.delivery_attempts
+                                < queue.max_delivery_attempts
+                      )
+                  )
                 ORDER BY message.enqueued_at
                 LIMIT 1
             ) AS oldest_ready
@@ -228,7 +250,7 @@ impl PostgresQueueStateCollector {
                 WHERE message.queue_id = queue.id
                   AND message.priority = priorities.priority
                   AND message.state = 'IN_FLIGHT'
-                  AND message.visibility_deadline > CURRENT_TIMESTAMP
+                  AND message.available_after > CURRENT_TIMESTAMP
                 ORDER BY message.enqueued_at
                 LIMIT 1
             ) AS oldest_in_flight

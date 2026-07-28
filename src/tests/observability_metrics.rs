@@ -138,6 +138,7 @@ fn queue_command_metrics_use_queue_names() {
 
     commands.message_enqueued("email-delivery", "HIGH");
     commands.message_acknowledged("email-delivery");
+    commands.messages_dead_lettered("email-delivery", 2);
 
     let output = String::from_utf8(metrics.encode_prometheus().expect("metrics should encode"))
         .expect("metrics should be UTF-8");
@@ -156,6 +157,12 @@ fn queue_command_metrics_use_queue_names() {
         "queue_messages_acknowledged_total",
         &[("queue_name", "email-delivery")],
         "1",
+    );
+    assert_metric_value(
+        &output,
+        "queue_messages_dead_lettered_total",
+        &[("queue_name", "email-delivery")],
+        "2",
     );
     assert!(
         !output.contains("queue_id="),

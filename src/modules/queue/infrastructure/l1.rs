@@ -8,7 +8,7 @@ use crate::cache::{Cache, MemoryCache};
 use super::super::{
     application::{
         AcknowledgeMessageOutcome, CreateQueueOutcome, DequeueMessageOutcome,
-        ExpiredMessagesCleanupSummary, QueueRepository, TimeoutProcessingSummary,
+        ExpiredMessagesCleanupSummary, QueueRepository,
     },
     domain::{Message, Queue, QueueConfigurationUpdate, QueueDetails},
 };
@@ -121,13 +121,6 @@ where
         self.source
             .acknowledge_message(queue_id, message_id, receipt_handle)
             .await
-    }
-
-    async fn process_timed_out_messages(
-        &self,
-        batch_size: u32,
-    ) -> Result<TimeoutProcessingSummary, anyhow::Error> {
-        self.source.process_timed_out_messages(batch_size).await
     }
 
     async fn process_expired_messages(
