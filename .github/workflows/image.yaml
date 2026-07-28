@@ -9,7 +9,6 @@ on:
       - Cargo.toml
       - Dockerfile
       - build.rs
-      - config/**
       - migrations/**
       - rust-toolchain.toml
       - src/**
@@ -23,7 +22,6 @@ on:
       - Cargo.toml
       - Dockerfile
       - build.rs
-      - config/**
       - migrations/**
       - rust-toolchain.toml
       - src/**
@@ -43,7 +41,7 @@ jobs:
     name: Build container image
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     steps:
       - name: Check out repository
@@ -66,7 +64,7 @@ jobs:
     name: Publish container image
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     permissions:
       contents: read
       packages: write
