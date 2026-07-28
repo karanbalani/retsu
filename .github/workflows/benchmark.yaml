@@ -23,12 +23,27 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: "0"
+  RETSU_BENCHMARK_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/retsu_benchmark
 
 jobs:
   compare:
     name: Compare with branch base
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:18.4-alpine
+        env:
+          POSTGRES_DB: retsu_benchmark
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d retsu_benchmark"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 15
 
     steps:
       - name: Check out candidate
