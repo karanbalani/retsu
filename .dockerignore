@@ -1,0 +1,9 @@
+**
+!Cargo.lock
+!Cargo.toml
+!Dockerfile
+!build.rs
+!migrations/
+!migrations/**
+!src/
+!src/**

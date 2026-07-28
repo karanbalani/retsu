@@ -18,6 +18,7 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: "0"
+  TEST_IMAGE: retsu-integration:${{ github.sha }}
 
 jobs:
   integration:
@@ -26,7 +27,7 @@ jobs:
       github.event_name == 'push' ||
       github.event.label.name == 'run-integration-tests'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
 
     steps:
       - name: Check out repository
@@ -48,7 +49,27 @@ jobs:
           restore-keys: |
             rust-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml') }}-
 
-      - name: Run integration tests
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build local production image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          platforms: linux/amd64
+          push: false
+          tags: ${{ env.TEST_IMAGE }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run integration tests against the image
+        env:
+          RETSU_TEST_IMAGE: ${{ env.TEST_IMAGE }}
         run: >-
           cargo test --locked --test integration --all-features
           -- --test-threads=1
+
+      - name: Remove local test image
+        if: always()
+        run: docker image rm --force "${TEST_IMAGE}" || true
