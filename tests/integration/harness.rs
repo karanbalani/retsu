@@ -357,6 +357,22 @@ impl IntegrationSystem {
     }
 
     #[allow(dead_code)]
+    pub async fn reset_dequeue_fixture_directly(
+        &self,
+        queue_id: Uuid,
+        message_count: u32,
+        payload_size_bytes: u32,
+    ) -> anyhow::Result<()> {
+        sqlx::query("TRUNCATE TABLE queue_message, queue_priority_state_shard RESTART IDENTITY")
+            .execute(&self.database_pool)
+            .await
+            .context("failed to clear the benchmark dequeue fixture")?;
+
+        self.seed_ready_messages_directly(queue_id, message_count, payload_size_bytes)
+            .await
+    }
+
+    #[allow(dead_code)]
     pub async fn seed_ready_messages_directly(
         &self,
         queue_id: Uuid,
