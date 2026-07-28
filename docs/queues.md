@@ -25,8 +25,7 @@ A successful request returns status `201` and the new queue:
 }
 ```
 
-The `id` will be different for every queue. Keep it for message operations, which
-identify the queue by this stable ID rather than by its name.
+The `id` will be different for every queue. Keep it for message operations, which identify the queue by this stable ID rather than by its name.
 
 ### Queue settings
 

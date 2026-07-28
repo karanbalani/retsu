@@ -153,11 +153,25 @@ retains dead-letter records for one hour before its cleaner removes them.
 
 ## Run project checks
 
-Run every local check:
+Run formatting, linting, unit tests, and the Compose configuration check:
 
 ```bash
 just quality
 ```
+
+Run the Docker-backed integration suite:
+
+```bash
+just integration-test
+```
+
+Run both sets of checks:
+
+```bash
+just quality-full
+```
+
+Docker must be running for the integration suite. It starts and removes its own PostgreSQL containers, so the local Compose stack does not need to be running.
 
 ## Create a database change
 

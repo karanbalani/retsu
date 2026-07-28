@@ -146,32 +146,21 @@ The tradeoff is some manual wiring in `ApplicationContext`, module definitions, 
 
 ## How tests are separated
 
-Fast unit tests live in `src/tests/` and `src/modules/queue/tests/`. They cover
-domain rules, configuration, HTTP mapping, metrics, and other behavior that
-does not require a repository. Run them with:
+Fast unit tests live in `src/tests/` and `src/modules/queue/tests/`. They cover domain rules, configuration, HTTP mapping, metrics, and other behavior that does not require a repository. Run them with:
 
 ```bash
 just test
 ```
 
-Black-box integration tests live in `tests/integration/`. Each scenario starts
-an isolated PostgreSQL 18.4 container through Testcontainers, applies migrations
-with the compiled Retsu binary, and launches the real API and worker processes.
-The tests drive HTTP endpoints and inspect durable database outcomes without
-calling private application or repository methods. Run them with:
+Black-box integration tests live in `tests/integration/`. Each scenario starts an isolated PostgreSQL 18.4 container through Testcontainers, applies migrations with the compiled Retsu binary, and launches the real API and worker processes. The tests drive HTTP endpoints and inspect durable database outcomes without calling private application or repository methods. Run them with:
 
 ```bash
 just integration-test
 ```
 
-Docker must be running, but the local Compose stack does not need to be started.
-Testcontainers removes each PostgreSQL and Dragonfly container when its
-scenario finishes.
+Docker must be running, but the local Compose stack does not need to be started. Testcontainers removes each PostgreSQL and Dragonfly container when its scenario finishes.
 
-Pull requests run the integration workflow only when the
-`run-integration-tests` label is added. Later commits do not rerun it
-automatically; remove and re-add the label for another deliberate run. Pushes to
-`main` always run the integration suite.
+Pull requests run the integration workflow only when the `run-integration-tests` label is added. Later commits do not rerun it automatically; remove and re-add the label for another deliberate run. Pushes to `main` always run the integration suite.
 
 ## Where to add a change
 
