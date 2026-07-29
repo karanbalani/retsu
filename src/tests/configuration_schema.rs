@@ -43,6 +43,11 @@ fn accepts_all_validation_boundaries() {
     configuration.database.acquire_timeout_seconds = 5;
     configuration.worker.shutdown_timeout_seconds = 1;
     configuration.worker.management.port = 1;
+    let cleaner = &mut configuration.worker.queue.dead_letter_message_cleaner;
+    cleaner.retention_seconds = 3_600;
+    cleaner.processing_interval_seconds = 5;
+    cleaner.batch_size = 1;
+    cleaner.saturated_batch_delay_milliseconds = 1;
     let cleaner = &mut configuration.worker.queue.expired_message_cleaner;
     cleaner.processing_interval_seconds = 5;
     cleaner.batch_size = 1;
@@ -76,6 +81,11 @@ fn accepts_all_validation_boundaries() {
     configuration.cache.distributed.command_timeout_milliseconds = 10_000;
     configuration.database.acquire_timeout_seconds = 60;
     configuration.worker.shutdown_timeout_seconds = 300;
+    let cleaner = &mut configuration.worker.queue.dead_letter_message_cleaner;
+    cleaner.retention_seconds = 31_536_000;
+    cleaner.processing_interval_seconds = 3_600;
+    cleaner.batch_size = 10_000;
+    cleaner.saturated_batch_delay_milliseconds = 5_000;
     let cleaner = &mut configuration.worker.queue.expired_message_cleaner;
     cleaner.processing_interval_seconds = 3_600;
     cleaner.batch_size = 10_000;
@@ -154,6 +164,34 @@ fn rejects_values_outside_the_validation_contract() {
     assert_invalid(|configuration| configuration.worker.shutdown_timeout_seconds = 0);
     assert_invalid(|configuration| configuration.worker.shutdown_timeout_seconds = 301);
     assert_invalid(|configuration| configuration.worker.management.port = 0);
+    assert_invalid_queue_worker(|queue| {
+        queue.dead_letter_message_cleaner.retention_seconds = 3_599;
+    });
+    assert_invalid_queue_worker(|queue| {
+        queue.dead_letter_message_cleaner.retention_seconds = 31_536_001;
+    });
+    assert_invalid_queue_worker(|queue| {
+        queue
+            .dead_letter_message_cleaner
+            .processing_interval_seconds = 4;
+    });
+    assert_invalid_queue_worker(|queue| {
+        queue
+            .dead_letter_message_cleaner
+            .processing_interval_seconds = 3_601;
+    });
+    assert_invalid_queue_worker(|queue| queue.dead_letter_message_cleaner.batch_size = 0);
+    assert_invalid_queue_worker(|queue| queue.dead_letter_message_cleaner.batch_size = 10_001);
+    assert_invalid_queue_worker(|queue| {
+        queue
+            .dead_letter_message_cleaner
+            .saturated_batch_delay_milliseconds = 0;
+    });
+    assert_invalid_queue_worker(|queue| {
+        queue
+            .dead_letter_message_cleaner
+            .saturated_batch_delay_milliseconds = 5_001;
+    });
     assert_invalid_queue_worker(|queue| {
         queue.expired_message_cleaner.processing_interval_seconds = 4;
     });

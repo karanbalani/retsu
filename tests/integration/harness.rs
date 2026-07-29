@@ -587,6 +587,28 @@ impl IntegrationSystem {
             .await
             .context("failed to inspect dead-letter persistence")
     }
+
+    pub async fn age_dead_letter(&self, message_id: Uuid, age_seconds: i64) -> anyhow::Result<()> {
+        let result = sqlx::query(
+            r#"
+            UPDATE queue_dead_letter_message
+            SET dead_lettered_at = CURRENT_TIMESTAMP - ($2 * INTERVAL '1 second')
+            WHERE id = $1
+            "#,
+        )
+        .bind(message_id)
+        .bind(age_seconds)
+        .execute(&self.database_pool)
+        .await
+        .context("failed to age dead-letter persistence")?;
+
+        ensure!(
+            result.rows_affected() == 1,
+            "expected to age one dead-lettered message"
+        );
+
+        Ok(())
+    }
 }
 
 pub fn unique_queue_name(prefix: &str) -> String {
