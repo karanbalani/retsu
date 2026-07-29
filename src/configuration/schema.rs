@@ -205,11 +205,67 @@ pub(crate) struct WorkerConfig {
 
     #[validate(nested)]
     pub(crate) management: WorkerManagementConfig,
+
+    #[validate(nested)]
+    pub(crate) queue: QueueWorkerConfig,
 }
 
 impl WorkerConfig {
     pub(crate) fn shutdown_timeout(&self) -> Duration {
         Duration::from_secs(self.shutdown_timeout_seconds)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Validate)]
+#[serde(default, deny_unknown_fields)]
+pub(crate) struct QueueWorkerConfig {
+    #[validate(nested)]
+    pub(crate) expired_message_cleaner: ExpiredMessageCleanerConfig,
+
+    #[validate(nested)]
+    pub(crate) state_metrics_collector: StateMetricsCollectorConfig,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Validate)]
+#[serde(default, deny_unknown_fields)]
+pub(crate) struct ExpiredMessageCleanerConfig {
+    #[validate(range(min = 5, max = 3_600))]
+    pub(crate) processing_interval_seconds: u64,
+
+    #[validate(range(min = 1, max = 10_000))]
+    pub(crate) batch_size: u32,
+
+    #[validate(range(min = 1, max = 5_000))]
+    pub(crate) saturated_batch_delay_milliseconds: u64,
+}
+
+impl ExpiredMessageCleanerConfig {
+    pub(crate) fn processing_interval(&self) -> Duration {
+        Duration::from_secs(self.processing_interval_seconds)
+    }
+
+    pub(crate) fn saturated_batch_delay(&self) -> Duration {
+        Duration::from_millis(self.saturated_batch_delay_milliseconds)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Validate)]
+#[serde(default, deny_unknown_fields)]
+pub(crate) struct StateMetricsCollectorConfig {
+    #[validate(range(min = 5, max = 3_600))]
+    pub(crate) collection_interval_seconds: u64,
+
+    #[validate(range(min = 5, max = 300))]
+    pub(crate) leadership_retry_interval_seconds: u64,
+}
+
+impl StateMetricsCollectorConfig {
+    pub(crate) fn collection_interval(&self) -> Duration {
+        Duration::from_secs(self.collection_interval_seconds)
+    }
+
+    pub(crate) fn leadership_retry_interval(&self) -> Duration {
+        Duration::from_secs(self.leadership_retry_interval_seconds)
     }
 }
 
