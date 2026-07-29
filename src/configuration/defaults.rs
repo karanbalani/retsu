@@ -7,7 +7,8 @@ use super::{
     AppConfiguration,
     schema::{
         CacheConfig, CachePolicyConfig, DatabaseConfig, DistributedCacheConfig, Environment,
-        HttpConfig, InMemoryCacheConfig, LogFormat, LoggingConfig, MetricsConfig, TelemetryConfig,
+        ExpiredMessageCleanerConfig, HttpConfig, InMemoryCacheConfig, LogFormat, LoggingConfig,
+        MetricsConfig, QueueWorkerConfig, StateMetricsCollectorConfig, TelemetryConfig,
         TraceExportConfig, WorkerConfig, WorkerManagementConfig,
     },
 };
@@ -177,6 +178,7 @@ impl Default for WorkerConfig {
         Self {
             shutdown_timeout_seconds: worker_shutdown_timeout_seconds(),
             management: WorkerManagementConfig::default(),
+            queue: QueueWorkerConfig::default(),
         }
     }
 }
@@ -194,6 +196,47 @@ impl Default for WorkerManagementConfig {
         Self {
             bind_address: worker_management_bind_address(),
             port: worker_management_port(),
+        }
+    }
+}
+
+fn expired_message_cleaner_processing_interval_seconds() -> u64 {
+    60
+}
+
+fn expired_message_cleaner_batch_size() -> u32 {
+    500
+}
+
+fn expired_message_cleaner_saturated_batch_delay_milliseconds() -> u64 {
+    50
+}
+
+impl Default for ExpiredMessageCleanerConfig {
+    fn default() -> Self {
+        Self {
+            processing_interval_seconds: expired_message_cleaner_processing_interval_seconds(),
+            batch_size: expired_message_cleaner_batch_size(),
+            saturated_batch_delay_milliseconds:
+                expired_message_cleaner_saturated_batch_delay_milliseconds(),
+        }
+    }
+}
+
+fn state_metrics_collector_collection_interval_seconds() -> u64 {
+    15
+}
+
+fn state_metrics_collector_leadership_retry_interval_seconds() -> u64 {
+    15
+}
+
+impl Default for StateMetricsCollectorConfig {
+    fn default() -> Self {
+        Self {
+            collection_interval_seconds: state_metrics_collector_collection_interval_seconds(),
+            leadership_retry_interval_seconds:
+                state_metrics_collector_leadership_retry_interval_seconds(),
         }
     }
 }
