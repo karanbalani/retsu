@@ -6,7 +6,7 @@ use super::harness::{
 
 #[tokio::test]
 async fn dequeue_retries_timed_out_messages_then_dead_letters_them() -> anyhow::Result<()> {
-    let system = IntegrationSystem::start().await?;
+    let mut system = IntegrationSystem::start().await?;
     let queue_name = unique_queue_name("visibility-timeout");
 
     let queue_id = system.create_queue(&queue_name, 1, 2, 60).await?;
@@ -51,6 +51,19 @@ async fn dequeue_retries_timed_out_messages_then_dead_letters_them() -> anyhow::
 
     assert_eq!(reason, "MAX_DELIVERY_ATTEMPTS_EXHAUSTED");
     assert!(!system.message_exists(message_id).await?);
+
+    system.age_dead_letter(message_id, 1_209_601).await?;
+    system.start_worker("dead-letter-message-cleaner").await?;
+
+    eventually(
+        "the retention worker to purge the dead-lettered message",
+        Duration::from_secs(10),
+        || async {
+            let reason = system.dead_letter_reason(message_id).await?;
+            Ok(reason.is_none().then_some(()))
+        },
+    )
+    .await?;
 
     Ok(())
 }

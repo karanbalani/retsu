@@ -4,8 +4,11 @@ use super::harness::{IntegrationSystem, unique_queue_name};
 async fn queue_lifecycle_crosses_real_process_and_database_boundaries() -> anyhow::Result<()> {
     let system = IntegrationSystem::start().await?;
     let queue_name = unique_queue_name("queue-lifecycle");
+    let other_queue_name = unique_queue_name("other-queue");
 
     let queue_id = system.create_queue(&queue_name, 30, 3, 300).await?;
+    system.assert_queue_creation_conflicts(&queue_name).await?;
+    let other_queue_id = system.create_queue(&other_queue_name, 30, 3, 300).await?;
 
     let low_id = system
         .enqueue_message(queue_id, "low-priority", "LOW", None)
@@ -26,6 +29,12 @@ async fn queue_lifecycle_crosses_real_process_and_database_boundaries() -> anyho
     assert_eq!(first_high.payload, "first-high-priority");
     assert_eq!(first_high.priority, "HIGH");
     assert_eq!(first_high.delivery_attempts, 1);
+
+    system
+        .acknowledge_message(other_queue_id, first_high.id, first_high.receipt_handle)
+        .await?;
+
+    assert!(system.message_exists(first_high.id).await?);
 
     system
         .acknowledge_message(queue_id, first_high.id, first_high.receipt_handle)

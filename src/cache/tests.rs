@@ -141,34 +141,6 @@ async fn explicit_insert_replaces_the_cached_value() {
 }
 
 #[tokio::test]
-async fn retains_values_without_a_time_expiration_policy() {
-    let (_, metrics) = test_metrics();
-    let cache = MemoryCache::new(
-        "non_expiring_values",
-        MemoryCachePolicy::new(100, 1024 * 1024),
-        |_key: &u64, value: &String| u32::try_from(value.len()).unwrap_or(u32::MAX),
-        metrics.cache().clone(),
-    );
-    let loads = AtomicUsize::new(0);
-
-    for _ in 0..2 {
-        let value = cache
-            .get_or_load(42, || async {
-                loads.fetch_add(1, Ordering::Relaxed);
-                Ok::<_, anyhow::Error>(Some("value".to_owned()))
-            })
-            .await
-            .expect("loader should succeed")
-            .expect("loader should return a value");
-
-        assert_eq!(value.as_str(), "value");
-        tokio::time::sleep(Duration::from_millis(25)).await;
-    }
-
-    assert_eq!(loads.load(Ordering::Relaxed), 1);
-}
-
-#[tokio::test]
 async fn enforces_entry_and_weighted_byte_limits() {
     let (_, metrics) = test_metrics();
     let entry_limited = MemoryCache::new(

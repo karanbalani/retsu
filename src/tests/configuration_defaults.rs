@@ -101,4 +101,42 @@ fn checked_in_yaml_matches_programmatic_defaults() {
         from_file.worker.management.port,
         defaults.worker.management.port
     );
+    let from_cleaner = from_file.worker.queue.dead_letter_message_cleaner;
+    let default_cleaner = defaults.worker.queue.dead_letter_message_cleaner;
+    assert_eq!(
+        from_cleaner.retention_seconds,
+        default_cleaner.retention_seconds
+    );
+    assert_eq!(
+        from_cleaner.processing_interval_seconds,
+        default_cleaner.processing_interval_seconds
+    );
+    assert_eq!(from_cleaner.batch_size, default_cleaner.batch_size);
+    assert_eq!(
+        from_cleaner.saturated_batch_delay_milliseconds,
+        default_cleaner.saturated_batch_delay_milliseconds
+    );
+
+    let from_cleaner = from_file.worker.queue.expired_message_cleaner;
+    let default_cleaner = defaults.worker.queue.expired_message_cleaner;
+    assert_eq!(
+        from_cleaner.processing_interval_seconds,
+        default_cleaner.processing_interval_seconds
+    );
+    assert_eq!(from_cleaner.batch_size, default_cleaner.batch_size);
+    assert_eq!(
+        from_cleaner.saturated_batch_delay_milliseconds,
+        default_cleaner.saturated_batch_delay_milliseconds
+    );
+
+    let from_collector = from_file.worker.queue.state_metrics_collector;
+    let default_collector = defaults.worker.queue.state_metrics_collector;
+    assert_eq!(
+        from_collector.collection_interval_seconds,
+        default_collector.collection_interval_seconds
+    );
+    assert_eq!(
+        from_collector.leadership_retry_interval_seconds,
+        default_collector.leadership_retry_interval_seconds
+    );
 }

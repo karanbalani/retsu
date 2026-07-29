@@ -1,7 +1,7 @@
 use super::harness::{IntegrationSystem, unique_queue_name};
 
 #[tokio::test]
-async fn queue_details_are_written_through_and_read_through_dragonfly() -> anyhow::Result<()> {
+async fn queue_details_cache_handles_write_read_and_outage_paths() -> anyhow::Result<()> {
     let system = IntegrationSystem::start().await?;
 
     let created_name = unique_queue_name("cache-write-through");
@@ -78,6 +78,16 @@ async fn queue_details_are_written_through_and_read_through_dragonfly() -> anyho
         inserted_details["found"]["default_message_ttl_seconds"],
         600
     );
+
+    system.stop_distributed_cache().await?;
+
+    let fallback_name = unique_queue_name("cache-outage-fallback");
+    let fallback_id = system.insert_queue(&fallback_name, 75, 5, 450).await?;
+    let fallback_message_id = system
+        .enqueue_message(fallback_id, "postgres-fallback", "MEDIUM", None)
+        .await?;
+
+    assert!(system.message_exists(fallback_message_id).await?);
 
     Ok(())
 }

@@ -287,6 +287,18 @@ impl IntegrationSystem {
         Ok(response.id)
     }
 
+    pub async fn assert_queue_creation_conflicts(&self, name: &str) -> anyhow::Result<()> {
+        let response = self
+            .client
+            .post(format!("{}/v1/queues", self.api_base_url))
+            .json(&json!({ "name": name }))
+            .send()
+            .await
+            .context("duplicate queue creation request failed")?;
+
+        expect_status(response, StatusCode::CONFLICT, "create duplicate queue").await
+    }
+
     pub async fn update_queue(
         &self,
         queue_id: Uuid,
@@ -389,6 +401,13 @@ impl IntegrationSystem {
             .context("worker metrics request failed")?;
 
         expect_body(response, StatusCode::OK, "read worker metrics").await
+    }
+
+    pub async fn stop_distributed_cache(&self) -> anyhow::Result<()> {
+        self._distributed_cache
+            .stop_with_timeout(Some(0))
+            .await
+            .context("failed to stop the integration-test distributed cache")
     }
 
     pub async fn message_exists(&self, message_id: Uuid) -> anyhow::Result<bool> {
@@ -579,6 +598,32 @@ impl IntegrationSystem {
             .fetch_optional(&self.database_pool)
             .await
             .context("failed to inspect dead-letter persistence")
+    }
+
+    pub async fn age_dead_letter(&self, message_id: Uuid, age_seconds: i64) -> anyhow::Result<()> {
+        let result = sqlx::query(
+            r#"
+            UPDATE queue_dead_letter_message
+            SET
+                enqueued_at = enqueued_at - ($2 * INTERVAL '1 second'),
+                expires_at = expires_at - ($2 * INTERVAL '1 second'),
+                last_delivered_at = last_delivered_at - ($2 * INTERVAL '1 second'),
+                dead_lettered_at = dead_lettered_at - ($2 * INTERVAL '1 second')
+            WHERE id = $1
+            "#,
+        )
+        .bind(message_id)
+        .bind(age_seconds)
+        .execute(&self.database_pool)
+        .await
+        .context("failed to age dead-letter persistence")?;
+
+        ensure!(
+            result.rows_affected() == 1,
+            "expected to age one dead-lettered message"
+        );
+
+        Ok(())
     }
 }
 
