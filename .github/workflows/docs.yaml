@@ -4,7 +4,9 @@ on:
   pull_request:
     paths:
       - ".github/workflows/docs.yaml"
+      - "Cargo.toml"
       - "docs/**"
+      - "docs_macros.py"
       - "requirements-docs.txt"
       - "zensical.toml"
   push:
@@ -12,7 +14,9 @@ on:
       - main
     paths:
       - ".github/workflows/docs.yaml"
+      - "Cargo.toml"
       - "docs/**"
+      - "docs_macros.py"
       - "requirements-docs.txt"
       - "zensical.toml"
   workflow_dispatch:

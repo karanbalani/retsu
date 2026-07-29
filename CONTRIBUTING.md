@@ -78,6 +78,9 @@ python -m pip install --requirement requirements-docs.txt
 zensical build --clean --strict
 ```
 
+The documentation build reads the project version from `Cargo.toml` through
+`docs_macros.py`; do not duplicate the release version in Markdown.
+
 ## Pull requests
 
 All changes must go through a pull request. In the pull request:
