@@ -29,5 +29,10 @@ grafana_address="$(
     "${compose[@]}" --profile observability port grafana 3000 \
         | tail -n 1
 )"
-echo "Load run complete. Review it in Grafana: http://${grafana_address}/d/retsu-performance/retsu-performance"
+if [[ "${scenario}" == "production-day" ]]; then
+    dashboard_path="retsu-production-day/retsu-production-day"
+else
+    dashboard_path="retsu-performance/retsu-performance"
+fi
+echo "Load run complete. Review it in Grafana: http://${grafana_address}/d/${dashboard_path}"
 echo "Use the dashboard time picker to focus on the run that just completed."

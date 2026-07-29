@@ -72,7 +72,7 @@ services:
         condition: service_completed_successfully
       pgbouncer:
         condition: service_healthy
-    cpus: "${RETSU_LOCAL_API_CPUS:-2}"
+    cpus: "${RETSU_LOCAL_API_CPUS:-1}"
     mem_limit: ${RETSU_LOCAL_API_MEMORY:-512m}
     pids_limit: 128
     restart: unless-stopped

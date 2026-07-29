@@ -68,4 +68,5 @@ jobs:
           --file infra/local/compose.yaml
           --profile observability
           --profile tracing
+          --profile load
           config --quiet

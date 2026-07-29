@@ -36,8 +36,11 @@ environment because its `RETSU_LOCAL_*` variables are not Retsu application
 configuration fields.
 
 Every command uses `infra/local/compose.yaml` as the canonical Compose entry
-point. It loads the root `.env` when present and falls back to
-`.env.example`. Compose configuration lives beside the service it configures:
+point. Docker Compose loads the root `.env` when it is present. Without it,
+Compose uses the `${...:-...}` defaults in the service files, while the k6
+scripts use their JavaScript defaults. `.env.example` is a copyable template
+used by `just env-init`, not an automatic fallback. Compose configuration lives
+beside the service it configures:
 
 ```text
 infra/local/
@@ -74,7 +77,8 @@ just local-up
 ```
 
 The command waits for the API, workers, Prometheus, and Grafana to become
-ready, then prints the API and Grafana addresses.
+ready, verifies the required Retsu, PostgreSQL, PgBouncer, and container scrape
+targets, then prints the API and Grafana addresses.
 
 Trace export is optional. Tempo stays available with Grafana so its provisioned
 datasource is always healthy, while the OpenTelemetry Collector and application
@@ -129,7 +133,7 @@ disabled:
 
 | Service | CPUs | Memory | PIDs |
 | --- | ---: | ---: | ---: |
-| API | 2.00 | 512 MiB | 128 |
+| API | 1.00 | 512 MiB | 128 |
 | PostgreSQL | 2.00 | 1 GiB | 256 |
 | PgBouncer | 0.25 | 64 MiB | 64 |
 | PgBouncer exporter | 0.10 | 64 MiB | 32 |
@@ -142,7 +146,7 @@ disabled:
 | cAdvisor | 0.35 | 192 MiB | 128 |
 | OpenTelemetry Collector | 0.35 | 192 MiB | 128 |
 | Tempo | 0.50 | 384 MiB | 128 |
-| k6, while running | 2.00 | 1 GiB | 256 |
+| k6, while running | 2.00 | 2 GiB | 256 |
 
 Dragonfly's 384 MiB container limit leaves runtime overhead above its 256 MiB
 cache cap.
@@ -247,7 +251,8 @@ you need a recognizable queue suffix:
 RUN_ID=regression-001 just local-load mixed
 ```
 
-The load row in the Retsu Performance dashboard shows VUs, scenario throughput,
+The dedicated Retsu Production Day dashboard shows that scenario. The load row
+in the Retsu Performance dashboard shows the shorter scenarios' VUs, throughput,
 dropped iterations, failures, and p95/p99 request duration. Select the time
 window covering the completed run because k6 marks its series stale when the
 one-shot container exits.

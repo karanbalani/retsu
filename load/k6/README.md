@@ -169,9 +169,10 @@ QUEUE_COUNT=4 \
 ```
 
 The local runner sends metrics to Prometheus and prints the normal k6 summary.
-Its results appear in the load row of the provisioned Retsu Performance
-dashboard. The k6 container has no host port or persistent storage and is
-removed after every run.
+Production-day results appear in the dedicated Retsu Production Day dashboard;
+the other scenarios appear in the load row of the Retsu Performance dashboard.
+The k6 container has no host port or persistent storage and is removed after
+every run.
 
 The pinned container can also run the scripts directly against a remote API:
 
