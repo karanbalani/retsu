@@ -287,6 +287,18 @@ impl IntegrationSystem {
         Ok(response.id)
     }
 
+    pub async fn assert_queue_creation_conflicts(&self, name: &str) -> anyhow::Result<()> {
+        let response = self
+            .client
+            .post(format!("{}/v1/queues", self.api_base_url))
+            .json(&json!({ "name": name }))
+            .send()
+            .await
+            .context("duplicate queue creation request failed")?;
+
+        expect_status(response, StatusCode::CONFLICT, "create duplicate queue").await
+    }
+
     pub async fn update_queue(
         &self,
         queue_id: Uuid,

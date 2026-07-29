@@ -7,6 +7,7 @@ async fn queue_lifecycle_crosses_real_process_and_database_boundaries() -> anyho
     let other_queue_name = unique_queue_name("other-queue");
 
     let queue_id = system.create_queue(&queue_name, 30, 3, 300).await?;
+    system.assert_queue_creation_conflicts(&queue_name).await?;
     let other_queue_id = system.create_queue(&other_queue_name, 30, 3, 300).await?;
 
     let low_id = system
