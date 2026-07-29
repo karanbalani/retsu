@@ -8,6 +8,7 @@ edit_uri = "edit/main/docs/"
 docs_dir = "docs"
 site_dir = "site"
 extra_css = ["stylesheets/theme.css"]
+extra_javascript = ["javascripts/content-viewer.js"]
 nav = [
   { "Start" = [
     { "Overview" = "index.md" },
