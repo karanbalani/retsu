@@ -1,6 +1,6 @@
 # Retsu documentation
 
-Retsu is an observable, distributed priority queue.
+Retsu {{ retsu_version }} is an observable, distributed priority queue.
 
 Choose the path that matches what you want to do:
 

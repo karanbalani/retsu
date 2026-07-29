@@ -110,7 +110,7 @@ See [Monitoring](observability.md) for metrics, logs, traces, and dashboards. Th
 Maintainers create a calendar-version tag from a clean local `main` that matches `origin/main`:
 
 ```console
-just release-tag 2026.7.0
+just release-tag {{ retsu_version }}
 ```
 
 The release workflow builds both image architectures, publishes version and commit tags, and creates a GitHub release.
