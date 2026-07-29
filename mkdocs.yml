@@ -1,0 +1,45 @@
+site_name: Retsu
+site_description: An observable, distributed priority queue
+site_url: https://karanbalani.github.io/retsu/
+repo_url: https://github.com/karanbalani/retsu
+repo_name: karanbalani/retsu
+edit_uri: edit/main/docs/
+
+docs_dir: docs
+site_dir: site
+
+theme:
+  name: readthedocs
+  highlightjs: true
+  hljs_languages:
+    - bash
+    - json
+    - rust
+    - yaml
+
+plugins:
+  - search
+
+nav:
+  - Home: index.md
+  - Getting started: getting-started.md
+  - Guides:
+      - Queues and messages: queues.md
+      - Caching: caching.md
+  - Architecture:
+      - Overview: architecture.md
+      - Codebase guide: codebase-guide.md
+      - Queue state rollups: queue-state-rollups.md
+      - Queue metric cardinality: queue-metric-cardinality.md
+      - Collector leadership: queue-state-collector-leadership.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - fenced_code
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
