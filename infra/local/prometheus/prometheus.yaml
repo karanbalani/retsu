@@ -1,48 +1,99 @@
 global:
-  scrape_interval: 5s
-  scrape_timeout: 4s
-  evaluation_interval: 5s
+  scrape_interval: 15s
+  scrape_timeout: 10s
+  evaluation_interval: 15s
   scrape_native_histograms: true
 
 scrape_configs:
   - job_name: retsu
+    scrape_interval: 10s
     metrics_path: /metrics
     static_configs:
       - targets:
-          - host.docker.internal:2424
+          - api:2424
         labels:
+          component: api
           deployment_environment: local
           process_mode: api
 
       - targets:
-          - host.docker.internal:24247
+          - expired-message-cleaner:24247
         labels:
+          component: expired-message-cleaner
           deployment_environment: local
           process_mode: worker
 
-  - job_name: otel-collector
-    static_configs:
       - targets:
-          - otel-collector:8888
-
-  - job_name: tempo
-    static_configs:
-      - targets:
-          - tempo:3200
+          - state-metrics-collector:24247
+        labels:
+          component: state-metrics-collector
+          deployment_environment: local
+          process_mode: worker
 
   - job_name: prometheus
+    scrape_interval: 30s
     static_configs:
       - targets:
           - 127.0.0.1:9090
+    metric_relabel_configs:
+      - source_labels:
+          - __name__
+        regex: 'prometheus_build_info|prometheus_config_last_reload_successful|prometheus_config_last_reload_success_timestamp_seconds|prometheus_engine_queries|prometheus_engine_query_duration_seconds.*|prometheus_target_interval_length_seconds.*|prometheus_target_scrape_pool_exceeded_.*|prometheus_target_scrape_pool_sync_total|prometheus_tsdb_compactions_.*|prometheus_tsdb_head_.*|prometheus_tsdb_storage_blocks_bytes|prometheus_tsdb_wal_.*|up'
+        action: keep
 
   - job_name: postgres
+    scrape_interval: 15s
     static_configs:
       - targets:
           - pg-exporter:9630
         labels:
           deployment_environment: local
+    metric_relabel_configs:
+      # Container metrics already cover the exporter's Go process resources.
+      - source_labels:
+          - __name__
+        regex: go_.*|process_.*|promhttp_.*
+        action: drop
+      # Cache hit/entry counters describe the exporter implementation, while
+      # scrape error and duration metrics below remain available per collector.
+      - source_labels:
+          - __name__
+        regex: pg_exporter_query_cache_ttl|pg_exporter_query_scrape_(hit|metric|total)_count
+        action: drop
+      # pg_stat_io exposes 18 metric families for every backend/object/context
+      # combination. Retain request, byte, latency, hit, eviction, and fsync
+      # signals; detailed extension/writeback counters are disproportionate for
+      # the single-node local stack.
+      - source_labels:
+          - __name__
+        regex: pg_io_(extend_bytes|extend_time|extends|reset_time|reuses|writeback_time|writebacks)
+        action: drop
+      # These PostgreSQL roles are inactive in a standalone local server.
+      # Client, maintenance, writer, and checkpoint I/O remain visible.
+      - source_labels:
+          - __name__
+          - type
+        separator: ;
+        regex: 'pg_io_.*;(io worker|slotsync worker|standalone backend|startup|walreceiver|walsender|walsummarizer)'
+        action: drop
+
+  - job_name: pgbouncer
+    scrape_interval: 15s
+    scrape_timeout: 5s
+    static_configs:
+      - targets:
+          - pgbouncer-exporter:9127
+        labels:
+          deployment_environment: local
+    metric_relabel_configs:
+      # cAdvisor already covers the exporter's process resources.
+      - source_labels:
+          - __name__
+        regex: go_.*|process_.*|promhttp_.*
+        action: drop
 
   - job_name: containers
+    scrape_interval: 10s
     static_configs:
       - targets:
           - cadvisor:8080
@@ -50,6 +101,20 @@ scrape_configs:
           deployment_environment: local
     metric_relabel_configs:
       - source_labels:
-          - container_label_retsu_observability_component
-        regex: postgres
+          - container_label_com_docker_compose_project
+        regex: retsu
         action: keep
+      - source_labels:
+          - __name__
+        regex: 'container_cpu_cfs_periods_total|container_cpu_cfs_throttled_periods_total|container_cpu_cfs_throttled_seconds_total|container_cpu_usage_seconds_total|container_fs_limit_bytes|container_fs_reads_bytes_total|container_fs_usage_bytes|container_fs_writes_bytes_total|container_last_seen|container_memory_working_set_bytes|container_network_receive_bytes_total|container_network_transmit_bytes_total|container_oom_events_total|container_spec_cpu_period|container_spec_cpu_quota|container_spec_memory_limit_bytes'
+        action: keep
+      - source_labels:
+          - container_label_retsu_observability_component
+        regex: (.+)
+        target_label: component
+        replacement: $1
+        action: replace
+      # Device and interface distinguish filesystem and network series. The
+      # component label replaces noisy Compose paths, hashes, IDs, and images.
+      - regex: __name__|component|cpu|deployment_environment|device|instance|interface|job
+        action: labelkeep

@@ -23,10 +23,6 @@ datasources:
     editable: false
     jsonData:
       httpMethod: GET
-      serviceMap:
-        datasourceUid: prometheus
-      nodeGraph:
-        enabled: true
       streamingEnabled:
         search: true
         metrics: true

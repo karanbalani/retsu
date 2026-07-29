@@ -1,0 +1,40 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.157.0
+    profiles:
+      - tracing
+    labels:
+      retsu.observability.component: otel-collector
+    command:
+      - --config=/etc/otelcol-contrib/config.yaml
+    volumes:
+      - ./config.yaml:/etc/otelcol-contrib/config.yaml:ro
+    ports:
+      - "127.0.0.1:${RETSU_LOCAL_OTLP_GRPC_PORT:-24241}:4317"
+      - "127.0.0.1:${RETSU_LOCAL_OTLP_HTTP_PORT:-24242}:4318"
+      - "127.0.0.1:${RETSU_LOCAL_OTEL_HEALTH_PORT:-24243}:13133"
+    expose:
+      - "8888"
+    depends_on:
+      tempo:
+        condition: service_started
+    stop_grace_period: 10s
+    cpus: "0.35"
+    mem_limit: 192m
+    pids_limit: 128
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m,mode=1777
+    networks:
+      - observability
+    logging: *default-logging

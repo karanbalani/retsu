@@ -62,4 +62,10 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Validate Compose configuration
-        run: docker compose config --quiet
+        run: >-
+          docker compose
+          --env-file .env.example
+          --file infra/local/compose.yaml
+          --profile observability
+          --profile tracing
+          config --quiet

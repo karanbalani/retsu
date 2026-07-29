@@ -1,0 +1,54 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  grafana:
+    image: grafana/grafana:13.1.1
+    profiles:
+      - observability
+    labels:
+      retsu.observability.component: grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: ${RETSU_LOCAL_GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${RETSU_LOCAL_GRAFANA_PASSWORD:-retsu_local}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_LOG_MODE: console
+    volumes:
+      - ./provisioning:/etc/grafana/provisioning:ro
+      - ./dashboards:/etc/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:${RETSU_LOCAL_GRAFANA_PORT:-24246}:3000"
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -q -O /dev/null http://127.0.0.1:3000/api/health",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 10s
+    stop_grace_period: 10s
+    cpus: "0.75"
+    mem_limit: 512m
+    pids_limit: 192
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m,mode=1777
+    networks:
+      - observability
+    logging: *default-logging
