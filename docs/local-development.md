@@ -1,13 +1,17 @@
 # Local development
 
-Use containers to run the complete product. Use the host Rust toolchain when changing code.
+Use the container workflow to run the complete product. Use the host workflow when changing Rust code.
 
-## Run the complete stack
+## Container workflow
+
+Check the container tools and start everything:
 
 ```console
 just doctor
 just local-up
 ```
+
+The stack builds the same hardened image used for production and starts migrations, the API, all workers, PostgreSQL, the distributed cache, and monitoring.
 
 Useful commands:
 
@@ -15,19 +19,27 @@ Useful commands:
 | --- | --- |
 | `just local-ready` | Check the API, workers, Prometheus, and Grafana |
 | `just local-status` | Show every local service |
-| `just logs api` | Follow the API logs |
 | `just local-stop` | Stop services and keep data |
 | `just stack-down` | Remove containers and keep data |
+| `just logs api` | Follow one service's logs |
+| `just local-validate` | Check local configuration without starting it |
 
-The [local infrastructure reference](https://github.com/karanbalani/retsu/blob/main/infra/local/README.md) has the full list of services, ports, and data-management commands.
+See the [detailed local infrastructure reference](https://github.com/karanbalani/retsu/blob/main/infra/local/README.md) for every service, port, resource limit, and data command.
 
-## Run Rust on the host
+## Host Rust workflow
 
-Install the pinned SQLx tool, check the toolchain, and start PostgreSQL and Dragonfly:
+The project uses the Rust version in `rust-toolchain.toml`.
+
+Install the pinned SQLx command-line tool and check the host toolchain:
 
 ```console
 just sqlx-install
 just doctor-host
+```
+
+Start PostgreSQL and Dragonfly, then apply migrations:
+
+```console
 just setup
 ```
 
@@ -37,75 +49,69 @@ Run the API:
 just api
 ```
 
-Run a worker in another terminal:
+Run one worker in another terminal:
 
 ```console
 just worker queue expired-message-cleaner
 ```
 
-Use `just worker-list queue` to see every queue worker. Start the monitoring stack with `just stack-up` before using `just api-observed` or `just worker-observed`.
+See [Workers](workers.md) for all worker commands and management ports.
 
-## Run the checks
+To send traces from a host process to the local monitoring stack, use `just stack-up` first, then run `just api-observed` or `just worker-observed`.
+
+## Project checks
+
+Run formatting checks, Clippy, unit tests, and local Compose validation:
 
 ```console
 just quality
+```
+
+Run the black-box integration suite:
+
+```console
 just integration-test
 ```
 
-`just quality` runs formatting checks, Clippy, unit tests, and Compose validation. The integration suite starts isolated PostgreSQL and Dragonfly containers and exercises real Retsu processes through HTTP.
-
-Run both with:
+Run both:
 
 ```console
 just quality-full
 ```
 
-## Create a migration
+The integration suite needs Docker but not the local Compose stack. It starts isolated PostgreSQL and Dragonfly containers, applies migrations, and exercises the compiled Retsu processes through HTTP.
 
-```console
-just migration-new create_queues_and_messages
-just migrate
-```
+## Documentation checks
 
-Use a short lowercase migration name with underscores. Do not create or rename migration files by hand.
-
-## Run load tests
-
-Only test an environment you own. Start the local stack, then choose a k6 scenario:
-
-```console
-just local-load smoke
-just local-load enqueue
-just local-load consume
-just local-load mixed
-just local-load saturation
-```
-
-| Scenario | Purpose |
-| --- | --- |
-| `smoke` | Check one complete message lifecycle |
-| `enqueue` | Measure writes while building a backlog |
-| `consume` | Measure dequeue and acknowledgement throughput |
-| `mixed` | Run producers and consumers together |
-| `saturation` | Increase demand until the system stops recovering |
-| `showcase` | Demonstrate priorities, retries, expiry, and dead letters |
-
-Open the [showcase dashboard](http://127.0.0.1:24246/d/retsu-showcase/retsu-showcase) and run `just local-showcase` for the five-minute demonstration.
-
-Scenario settings can be passed as environment variables:
-
-```console
-RUN_ID=regression-001 \
-MIXED_PRODUCER_RATE=25 \
-MIXED_CONSUMER_RATE=25 \
-  just local-load mixed
-```
-
-The available settings are defined in `load/k6/support/config.js`. Load runs leave their queues in PostgreSQL, so use a disposable database for repeated performance work.
-
-## Build the documentation
+Install the pinned documentation dependency and build the site:
 
 ```console
 python -m pip install --requirement requirements-docs.txt
 zensical build --clean --strict
 ```
+
+The documentation workflow runs the same strict build for pull requests that change the site.
+
+## Database migrations
+
+Create a forward-only migration:
+
+```console
+just migration-new create_queues_and_messages
+```
+
+Use a short lowercase name with underscores. Do not create or rename migration files by hand.
+
+Apply pending migrations with `just migrate`.
+
+## Local settings
+
+`config/retsu.yaml` contains application settings. Override one value with a `RETSU_` environment variable:
+
+```console
+RETSU_HTTP__PORT=3000 just api
+```
+
+Run `just env-init` to create the root `.env` used by Docker Compose. Its `RETSU_LOCAL_*` variables are Compose settings, not application settings. Do not source that file into a host Retsu process.
+
+See [Configuration](configuration.md) for every application setting.

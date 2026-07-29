@@ -38,7 +38,7 @@ Common defaults are:
 
 Bind to `0.0.0.0` inside a container. Keep connection URLs and other secrets in the deployment's secret manager, not in the repository.
 
-The complete list and accepted ranges live in [`config/retsu.yaml`](https://github.com/karanbalani/retsu/blob/main/config/retsu.yaml) and the validated configuration schema.
+See [Configuration](configuration.md) for the complete list, defaults, accepted ranges, and environment-variable format.
 
 ## Run the processes
 
@@ -58,6 +58,8 @@ Then run the API and all three workers as separate processes:
 | State-metrics collector | `retsu worker run queue state-metrics-collector` | Refreshes ready, in-flight, and oldest-message measurements |
 
 Starting one process does not start any other process. Several state collectors can run for failover, but only one collects at a time.
+
+See [Workers](workers.md) for worker timing, management ports, and shutdown behavior.
 
 ## Deploy the image
 
@@ -79,6 +81,8 @@ A safe rollout is:
 
 The image runs as user and group `65532` and contains no shell or package manager. It supports Linux AMD64 and ARM64.
 
+See [Deployment and releases](deployment.md) for image tags, commands, rollout details, and the release workflow.
+
 ## Check each process
 
 The API and workers expose:
@@ -99,7 +103,7 @@ RETSU_TELEMETRY__TRACES__ENDPOINT=http://collector:4317 \
 
 The local stack includes Prometheus, Grafana, Tempo, and the OpenTelemetry Collector. Open Grafana at <http://127.0.0.1:24246>.
 
-See the [local infrastructure reference](https://github.com/karanbalani/retsu/blob/main/infra/local/README.md) for every local port, dashboard, resource limit, and troubleshooting command.
+See [Monitoring](observability.md) for metrics, logs, traces, and dashboards. The [local infrastructure reference](https://github.com/karanbalani/retsu/blob/main/infra/local/README.md) lists every local port, resource limit, and troubleshooting command.
 
 ## Create a release
 
