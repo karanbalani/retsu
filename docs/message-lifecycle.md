@@ -53,4 +53,4 @@ Retsu does not currently expose an API to list, restore, or delete individual de
 | `max_delivery_attempts` | How many deliveries are allowed before dead-letter storage |
 | `ttl_seconds` or `default_message_ttl_seconds` | How long the message can exist |
 
-See [Queues and messages](queues.md) for the HTTP requests and [Workers](workers.md) for cleanup behavior.
+See the [Queue API](queues.md) for the HTTP requests and [Operations](operations.md#run-the-processes) for the cleanup processes.
