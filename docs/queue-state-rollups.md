@@ -1,13 +1,13 @@
-# Queue state rollups
+# Queue state summaries
 
 This guide explains how Retsu calculates queue-state metrics without repeatedly counting every message.
 
-A **rollup** is a small saved summary of a larger table. The message table remains the source of truth; the rollup only makes state metrics inexpensive to read.
+A **rollup** is a small saved summary of a larger table. Retsu uses one for queue counts. The message table remains the source of truth; the summary only makes state metrics inexpensive to read.
 
 Related guides:
 
-- [Queue metric cardinality](queue-metric-cardinality.md) explains how Retsu preserves a separate time series for every queue and priority.
-- [Queue state collector leadership](queue-state-collector-leadership.md) explains how multiple collector replicas agree which one reads the rollup.
+- [Queue metric limits](queue-metric-cardinality.md) explains how Retsu preserves a separate time series for every queue and priority.
+- [State collector failover](queue-state-collector-leadership.md) explains how multiple collector processes agree which one reads the summary.
 
 ## The short version
 
@@ -140,10 +140,7 @@ Three PostgreSQL triggers cover message inserts, updates, and deletes. They upda
 | Remove an expired ready message | -1 | 0 |
 | Remove an expired in-flight message | 0 | -1 |
 
-The triggers receive all rows changed by one SQL statement as a group. They
-combine changes for the same shard before updating the rollup. A dequeue's
-bounded dead-letter batch therefore performs at most one adjustment per
-affected shard instead of one counter update per message.
+The triggers receive all rows changed by one SQL statement as a group. They combine changes for the same shard before updating the rollup. A dequeue's bounded dead-letter batch therefore performs at most one adjustment per affected shard instead of one counter update per message.
 
 The database owns these updates because:
 
@@ -156,13 +153,11 @@ The migration backfills the rollup from messages that already exist. It also ins
 
 ## Physical state and logical state
 
-The rollup records the state physically stored in each message row. Time can
-change the logical state without changing that row:
+The rollup records the state physically stored in each message row. Time can change the logical state without changing that row:
 
 - a ready message can expire before the expiry worker removes it;
 - an in-flight lease becomes retryable when `available_after` passes;
-- an exhausted elapsed lease remains pending until a dequeue moves it to
-  dead-letter storage.
+- an exhausted elapsed lease remains pending until a dequeue moves it to dead-letter storage.
 
 The collector converts physical state into the state visible to consumers:
 
@@ -177,9 +172,7 @@ logical in flight
     - in-flight rows whose available_after has passed
 ```
 
-Indexes starting with `expires_at` and `available_after` limit these corrections
-to time-eligible rows. Exhausted and expired elapsed leases appear in neither
-logical ready nor logical in-flight counts.
+Indexes starting with `expires_at` and `available_after` limit these corrections to time-eligible rows. Exhausted and expired elapsed leases appear in neither logical ready nor logical in-flight counts.
 
 Retsu does not hide a negative logical result with `MAX(0, value)`. A negative result means the rollup has drifted, so collection fails visibly.
 
@@ -192,8 +185,7 @@ Counts come from the rollup. Oldest-message ages come from partial indexes on th
 (queue_id, priority, enqueued_at) for IN_FLIGHT messages
 ```
 
-The indexes include the expiry and `available_after` timestamps needed to check
-whether the candidate is logically ready or actively leased.
+The indexes include the expiry and `available_after` timestamps needed to check whether the candidate is logically ready or actively leased.
 
 For each queue and priority, PostgreSQL seeks to the oldest `enqueued_at` and stops at the first eligible row:
 
@@ -258,9 +250,7 @@ The failed attempt and duration are recorded, the error is logged, and the colle
 
 ### Elapsed leases or expired messages accumulate
 
-Logical counts remain correct because the collector applies time-based
-corrections. Query work grows with elapsed leases waiting for dequeue and
-expired rows waiting for the cleaner, so both backlogs should be monitored.
+Logical counts remain correct because the collector applies time-based corrections. Query work grows with elapsed leases waiting for dequeue and expired rows waiting for the cleaner, so both backlogs should be monitored.
 
 ### The rollup needs repair
 

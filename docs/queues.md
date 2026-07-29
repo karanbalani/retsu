@@ -2,6 +2,8 @@
 
 Retsu can create and configure queues, add messages, return the next waiting message, and mark a returned message as complete.
 
+See [Message lifecycle](message-lifecycle.md) for a single view of delivery, retry, expiry, and dead-letter behavior.
+
 ## Request and error format
 
 Requests with a JSON body must send `content-type: application/json`. The body can be at most 1 MiB, and fields not shown in this guide are rejected.
@@ -218,20 +220,10 @@ Acknowledgement is safe to repeat. Retsu also returns `204` when the message has
 
 - `404` and `queue_not_found`: the queue does not exist.
 
-## Try a timed-out message again
+## Retry, expiry, and dead letters
 
-If a returned message is not completed before its visibility timeout, the next dequeue request can claim it directly while its `delivery_attempts` value is below the queue's `max_delivery_attempts` setting. The returned message has a new `receipt_handle` and a higher `delivery_attempts` value. Acknowledging with the old receipt handle has no effect.
+After a visibility timeout ends, a later dequeue can claim the message directly and return a new receipt handle. No retry worker is required.
 
-When a message reaches the delivery attempt limit without being completed, the next dequeue request removes it from the active queue and stores it separately before looking for another deliverable message. There is no API to view or restore these messages yet.
+When the delivery limit is reached, a later dequeue moves the message to dead-letter storage. Expired active messages and old dead-letter records are removed by separate workers.
 
-## Remove expired messages
-
-Messages use their own `ttl_seconds` value when provided. Otherwise, they use the queue's `default_message_ttl_seconds` setting. Retsu stops returning a message as soon as its lifetime ends.
-
-Run the expired message cleaner as a separate process:
-
-```bash
-just worker queue expired-message-cleaner
-```
-
-The cleaner permanently removes expired waiting messages. If a returned message expires, the cleaner waits for its visibility timeout to end before removing it.
+See [Message lifecycle](message-lifecycle.md) for the rules and [Workers](workers.md) for the cleanup processes.
