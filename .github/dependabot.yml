@@ -47,7 +47,9 @@ updates:
           - "*"
 
   - package-ecosystem: "docker-compose"
-    directory: "/"
+    directories:
+      - "/infra/local"
+      - "/infra/local/*"
     schedule:
       interval: "weekly"
       day: "monday"
