@@ -108,7 +108,7 @@ RETSU_WORKER__MANAGEMENT__PORT=24252 \
   just worker-observed queue state-metrics-collector
 ```
 
-See the [local services guide](../infra/local/README.md) for ports, logs, reset
+See the [local services guide](https://github.com/karanbalani/retsu/blob/main/infra/local/README.md) for ports, logs, reset
 commands, and other details.
 
 ## Run project checks
