@@ -1,20 +1,33 @@
-# Documentation
+# Retsu documentation
+
+Retsu is an observable, distributed priority queue. These guides explain how to use it, run it, and understand its code.
 
 ## Start here
 
-- [Getting started](getting-started.md) — Set up and run Retsu.
-- [Queues and messages](queues.md) — Create and configure a queue, add messages, get the next one, and mark it as complete.
+- [Getting started](getting-started.md) — Start the complete local stack and try Retsu.
+- [Queues and messages](queues.md) — Use every public queue API.
+- [Message lifecycle](message-lifecycle.md) — Understand delivery, retries, expiry, and dead-letter storage.
+
+## Run Retsu
+
+- [Configuration](configuration.md) — Set ports, connections, caches, traces, and worker behavior.
+- [Workers](workers.md) — Run the three background jobs.
+- [Local development](local-development.md) — Work on Retsu with containers or the host Rust toolchain.
+- [Deployment and releases](deployment.md) — Run the production image and understand its release tags.
+- [Monitoring](observability.md) — Use health checks, metrics, logs, traces, and Grafana.
+- [Load testing](load-testing.md) — Run the smoke, performance, and showcase scenarios.
 
 ## Understand the code
 
-- [Architecture](architecture.md) — See how the API, workers, caches, queue module, and database fit together.
-- [Codebase guide](codebase-guide.md) — Understand startup, dependency injection, module structure, and where changes belong.
+- [Architecture](architecture.md) — See the running processes and shared services.
+- [Codebase guide](codebase-guide.md) — Understand dependency injection, modules, and where changes belong.
 - [Caching](caching.md) — Understand the local queue-name and shared queue-details caches.
+- [Queue state summaries](queue-state-rollups.md) — See how queue counts stay inexpensive to collect.
+- [Queue metric limits](queue-metric-cardinality.md) — Keep per-queue metrics within a known memory budget.
+- [State collector failover](queue-state-collector-leadership.md) — Keep one collector active while standby processes wait.
 
-## Run and monitor Retsu
+## Project guides
 
-- [Local services](../infra/local/README.md) — Manage PostgreSQL, Dragonfly, and the monitoring tools.
-- [Queue state rollups](queue-state-rollups.md) — Understand how queue state is counted without scanning every message.
-- [Queue metric cardinality](queue-metric-cardinality.md) — Configure how many queue-labelled time series Retsu preserves.
-- [Queue state collector leadership](queue-state-collector-leadership.md) — Keep one collector active while standby replicas provide failover.
-- [Local services](https://github.com/karanbalani/retsu/blob/main/infra/local/README.md) — Manage the local database and monitoring tools.
+- [Contributing](https://github.com/karanbalani/retsu/blob/main/CONTRIBUTING.md)
+- [Security policy](https://github.com/karanbalani/retsu/blob/main/SECURITY.md)
+- [Detailed local infrastructure reference](https://github.com/karanbalani/retsu/blob/main/infra/local/README.md)
