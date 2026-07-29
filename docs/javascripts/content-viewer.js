@@ -7,6 +7,8 @@
   let observer;
   let placeholder;
   let movedTarget = false;
+  let pageScrollY = 0;
+  let returnFocus = false;
 
   const updateScale = () => {
     stage?.style.setProperty("--retsu-zoom-scale", scale);
@@ -29,6 +31,7 @@
 
     dialog = document.createElement("dialog");
     dialog.className = "retsu-zoom";
+    dialog.tabIndex = -1;
     dialog.setAttribute("aria-label", "Image and diagram viewer");
 
     const toolbar = document.createElement("div");
@@ -64,14 +67,20 @@
       }
 
       stage.replaceChildren();
+      document.documentElement.classList.remove("retsu-zoom-open");
+      document.body.style.removeProperty("top");
+      window.scrollTo(0, pageScrollY);
       movedTarget = false;
       placeholder = undefined;
-      source?.focus();
+      if (returnFocus) {
+        source?.focus();
+      }
+      returnFocus = false;
     });
     document.body.append(dialog);
   };
 
-  const openViewer = (target) => {
+  const openViewer = (target, focusControls) => {
     ensureDialog();
     if (dialog.open) {
       return;
@@ -97,10 +106,19 @@
 
     source = target;
     scale = 1;
+    pageScrollY = window.scrollY;
+    returnFocus = focusControls;
     stage.replaceChildren(content);
     updateScale();
+    document.documentElement.classList.add("retsu-zoom-open");
+    document.body.style.top = `-${pageScrollY}px`;
     dialog.showModal();
-    dialog.querySelector('button[aria-label="Zoom in"]').focus();
+
+    if (focusControls) {
+      dialog.querySelector('button[aria-label="Zoom in"]').focus();
+    } else {
+      dialog.focus({ preventScroll: true });
+    }
   };
 
   const prepareTargets = () => {
@@ -121,12 +139,12 @@
       target.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
-        openViewer(target);
+        openViewer(target, false);
       });
       target.addEventListener("keydown", (event) => {
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
-          openViewer(target);
+          openViewer(target, true);
         }
       });
     });
