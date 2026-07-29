@@ -592,7 +592,11 @@ impl IntegrationSystem {
         let result = sqlx::query(
             r#"
             UPDATE queue_dead_letter_message
-            SET dead_lettered_at = CURRENT_TIMESTAMP - ($2 * INTERVAL '1 second')
+            SET
+                enqueued_at = enqueued_at - ($2 * INTERVAL '1 second'),
+                expires_at = expires_at - ($2 * INTERVAL '1 second'),
+                last_delivered_at = last_delivered_at - ($2 * INTERVAL '1 second'),
+                dead_lettered_at = dead_lettered_at - ($2 * INTERVAL '1 second')
             WHERE id = $1
             "#,
         )
