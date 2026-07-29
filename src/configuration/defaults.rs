@@ -40,7 +40,7 @@ impl Default for HttpConfig {
 }
 
 fn logging_filter() -> String {
-    "info".to_owned()
+    "warn".to_owned()
 }
 
 fn logging_format() -> LogFormat {
@@ -126,7 +126,7 @@ fn trace_export_enabled() -> bool {
 }
 
 fn trace_export_filter() -> String {
-    "info".to_owned()
+    "warn".to_owned()
 }
 
 fn trace_export_endpoint() -> String {
