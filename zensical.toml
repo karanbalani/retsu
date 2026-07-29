@@ -9,22 +9,19 @@ docs_dir = "docs"
 site_dir = "site"
 nav = [
   { "Home" = "index.md" },
-  { "Getting started" = "getting-started.md" },
+  { "Get started" = "getting-started.md" },
   { "Use Retsu" = [
-    { "Queues and messages" = "queues.md" },
+    { "Queue API" = "queues.md" },
     { "Message lifecycle" = "message-lifecycle.md" },
   ] },
   { "Run Retsu" = [
-    { "Configuration" = "configuration.md" },
-    { "Workers" = "workers.md" },
-    { "Local development" = "local-development.md" },
-    { "Deployment and releases" = "deployment.md" },
-    { "Monitoring" = "observability.md" },
-    { "Load testing" = "load-testing.md" },
+    { "Operations" = "operations.md" },
   ] },
-  { "Understand the code" = [
+  { "Develop" = [
+    { "Local development" = "local-development.md" },
     { "Architecture" = "architecture.md" },
-    { "Codebase guide" = "codebase-guide.md" },
+  ] },
+  { "Internals" = [
     { "Caching" = "caching.md" },
     { "Queue state summaries" = "queue-state-rollups.md" },
     { "Queue metric limits" = "queue-metric-cardinality.md" },
@@ -43,7 +40,8 @@ features = [
   "navigation.instant",
   "navigation.instant.prefetch",
   "navigation.path",
-  "navigation.sections",
+  "navigation.tabs",
+  "navigation.tabs.sticky",
   "navigation.top",
   "navigation.tracking",
   "search.highlight",
@@ -65,3 +63,13 @@ media = "(prefers-color-scheme: dark)"
 scheme = "slate"
 toggle.icon = "lucide/moon"
 toggle.name = "Switch to system preference"
+
+[[project.extra.social]]
+icon = "fontawesome/brands/github"
+link = "https://github.com/karanbalani"
+name = "Karan Balani on GitHub"
+
+[[project.extra.social]]
+icon = "fontawesome/brands/linkedin"
+link = "https://www.linkedin.com/in/balanikaran"
+name = "Karan Balani on LinkedIn"
