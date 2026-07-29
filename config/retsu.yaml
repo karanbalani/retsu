@@ -40,3 +40,11 @@ worker:
   management:
     bind_address: 127.0.0.1
     port: 24247
+  queue:
+    expired_message_cleaner:
+      processing_interval_seconds: 60
+      batch_size: 500
+      saturated_batch_delay_milliseconds: 50
+    state_metrics_collector:
+      collection_interval_seconds: 15
+      leadership_retry_interval_seconds: 15
