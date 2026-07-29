@@ -1,1 +1,1 @@
-mkdocs==1.6.1
+zensical==0.0.51
