@@ -6,7 +6,7 @@ x-logging: &default-logging
 
 services:
   dragonfly:
-    image: docker.dragonflydb.io/dragonflydb/dragonfly:v1.38.0
+    image: docker.dragonflydb.io/dragonflydb/dragonfly:v1.39.0
     labels:
       retsu.observability.component: distributed-cache
     command:

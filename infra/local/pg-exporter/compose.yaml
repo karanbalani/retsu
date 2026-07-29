@@ -6,7 +6,7 @@ x-logging: &default-logging
 
 services:
   pg-exporter:
-    image: pgsty/pg_exporter:1.4.0
+    image: pgsty/pg_exporter:1.4.1
     profiles:
       - observability
     labels:
