@@ -1,185 +1,84 @@
 # Getting started
 
-Use this guide to run Retsu on your computer.
-
-Retsu is still being built. You can create and configure queues, add messages, get the next
-waiting message, and mark it as complete. Timed-out messages become claimable
-again without a background worker.
+Use this guide to start Retsu and its local monitoring tools with Docker.
 
 ## What you need
 
-- Rust 1.97.1. The version is set in `rust-toolchain.toml`.
 - Docker with Docker Compose.
 - Just 1.45 or newer.
 - Bash.
-- `curl` to check the running application.
+- `curl`.
 
-## Set up Retsu
+Check that they are ready:
 
-1. Install the SQLx command-line tool used by the project:
-
-   ```bash
-   just sqlx-install
-   ```
-
-2. Check that the required tools are ready:
-
-   ```bash
-   just doctor-host
-   ```
-
-3. Start PostgreSQL and Dragonfly, then prepare the database:
-
-   ```bash
-   just setup
-   ```
-
-## Run Retsu
-
-Start the API:
-
-```bash
-just api
+```console
+just doctor
 ```
 
-Leave this command running. In another terminal, check that the API can use the
-database:
+## Start the complete local stack
 
-```bash
-curl http://127.0.0.1:2424/health/ready
-```
+Build the production image and start Retsu, PostgreSQL, the distributed cache, and the monitoring services:
 
-A ready API returns:
-
-```json
-{"status":"ready"}
-```
-
-Follow the [queues and messages guide](queues.md) to create a queue, add a
-message, get the next one, and complete it.
-
-List the available worker module and its workers:
-
-```bash
-just worker-modules
-just worker-list queue
-```
-
-Start the expired message cleaner in another terminal:
-
-```bash
-just worker queue expired-message-cleaner
-```
-
-The cleaner removes messages after their lifetime ends.
-
-Start the dead-letter retention cleaner on another management port:
-
-```bash
-RETSU_WORKER__MANAGEMENT__PORT=24253 \
-  just worker queue dead-letter-message-cleaner
-```
-
-It removes dead-letter records after the configured retention period.
-
-Start a state metrics collector in another terminal. One collector is enough
-for local development. Give it another management port:
-
-```bash
-RETSU_WORKER__MANAGEMENT__PORT=24252 \
-  just worker queue state-metrics-collector
-```
-
-It refreshes queue counts and message ages for Prometheus every 15 seconds.
-Deployments may run standby collectors for failover; PostgreSQL keeps only one
-active. See [queue state collector leadership](queue-state-collector-leadership.md).
-
-Run `just` without arguments to see all available commands:
-
-```bash
-just
-```
-
-## Use the local tools
-
-Start PostgreSQL and all monitoring tools:
-
-```bash
-just stack-up
-```
-
-Run the API or queue worker with activity tracking enabled:
-
-```bash
-just api-observed
-just worker-observed queue expired-message-cleaner
-RETSU_WORKER__MANAGEMENT__PORT=24253 \
-  just worker-observed queue dead-letter-message-cleaner
-RETSU_WORKER__MANAGEMENT__PORT=24252 \
-  just worker-observed queue state-metrics-collector
-```
-
-See the [local services guide](https://github.com/karanbalani/retsu/blob/main/infra/local/README.md) for ports, logs, reset
-commands, and other details.
-
-## See Retsu in action
-
-Start the complete container-native stack:
-
-```bash
+```console
 just local-up
 ```
 
-Open the Retsu Showcase dashboard at
-<http://127.0.0.1:24246/d/retsu-showcase/retsu-showcase>, then run the
-five-minute showcase in another terminal:
+The command applies database migrations, starts the API and all three workers, and waits until the stack is ready.
+
+Check it again at any time:
+
+```console
+just local-ready
+```
+
+The main local addresses are:
+
+- API: <http://127.0.0.1:2424>
+- API readiness: <http://127.0.0.1:2424/health/ready>
+- Grafana: <http://127.0.0.1:24246>
+- Retsu Showcase dashboard: <http://127.0.0.1:24246/d/retsu-showcase/retsu-showcase>
+
+## Try the queue API
+
+Create a queue:
 
 ```bash
+curl --request POST http://127.0.0.1:2424/v1/queues \
+  --header 'content-type: application/json' \
+  --data '{"name":"getting-started"}'
+```
+
+The response contains the queue ID needed for message requests. Continue with [Queues and messages](queues.md) to add, receive, and acknowledge a message.
+
+## See Retsu in action
+
+Keep the Showcase dashboard open and run:
+
+```console
 just local-showcase
 ```
 
-Use a whole number from 5 through 20 to choose the total run time:
+The default demonstration lasts five minutes. It creates five queues and shows priority handling, acknowledgements, retries, expiry, and dead-letter cleanup. Pass a whole number from 5 through 20 for a longer run:
 
-```bash
+```console
 just local-showcase 20
 ```
 
-The selected time includes the variable load, a clean drain, one full cleaner
-cycle, and final server-state verification. A five-minute run applies load for
-three minutes and completes in five minutes. Five queues receive a repeating
-50–150 RPS enqueue wave with two hot queues, 70/20/10 priority traffic, normal
-acknowledgements, retries, expiry, and dead-letter activity. The local stack
-retains dead-letter records for one hour before its cleaner removes them.
+See [Load testing](load-testing.md) for the other scenarios and the exact showcase workload.
 
-## Run project checks
+## Stop the stack
 
-Run every local check:
+Stop services without deleting their data:
 
-```bash
-just quality
+```console
+just local-stop
 ```
 
-## Create a database change
+Use `just stack-down` to remove the containers while keeping persisted data.
 
-Install SQLx first, then create a new migration:
+## What to read next
 
-```bash
-just migration-new create_queues_and_messages
-```
-
-Use a short, lowercase name with words separated by underscores. Do not create
-or rename migration files by hand.
-
-Apply pending migrations with `just migrate`.
-
-## Change local settings
-
-Run `just env-init` to create `.env` for Docker ports and passwords. Do not load
-that file into Retsu itself.
-
-Application settings are in `config/retsu.yaml`. You can override one setting
-for a command:
-
-```bash
-RETSU_HTTP__PORT=3000 just api
-```
+- [Local development](local-development.md) explains the host Rust workflow, migrations, and project checks.
+- [Configuration](configuration.md) lists every supported runtime setting.
+- [Monitoring](observability.md) explains the local dashboards and endpoints.
+- The [detailed local infrastructure reference](https://github.com/karanbalani/retsu/blob/main/infra/local/README.md) covers service ports, resource limits, logs, and data reset commands.

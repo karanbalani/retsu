@@ -1,11 +1,13 @@
-# Queue state collector leadership
+# State collector failover
 
-This guide explains how Retsu ensures that only one queue-state collector reads PostgreSQL while still allowing standby replicas for failover.
+This guide explains how Retsu keeps one queue-state collector active while other processes wait to take over.
+
+The active process is called the **leader**. It is the only collector that reads and exports current queue state.
 
 Related guides:
 
-- [Queue state rollups](queue-state-rollups.md) explains what the leader reads.
-- [Queue metric cardinality](queue-metric-cardinality.md) explains how the exported series budget is configured.
+- [Queue state summaries](queue-state-rollups.md) explains what the leader reads.
+- [Queue metric limits](queue-metric-cardinality.md) explains how the exported series budget is configured.
 
 ## The short version
 

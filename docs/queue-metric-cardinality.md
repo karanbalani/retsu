@@ -1,13 +1,13 @@
-# Queue metric cardinality
+# Queue metric limits
 
-This guide explains why Retsu configures metric cardinality in the application and how to choose a queue budget.
+This guide explains how Retsu limits the number of per-queue metric series kept in one process.
 
-**Cardinality** is the number of distinct label combinations produced by one metric. A queue identity and priority together create one combination.
+Monitoring tools call this **cardinality**: the number of distinct label combinations produced by one metric. A queue name and priority together create one combination.
 
 Related guides:
 
-- [Queue state rollups](queue-state-rollups.md) explains how the underlying state counts are maintained.
-- [Queue state collector leadership](queue-state-collector-leadership.md) explains which worker exports state gauges.
+- [Queue state summaries](queue-state-rollups.md) explains how the underlying state counts are maintained.
+- [State collector failover](queue-state-collector-leadership.md) explains which worker exports state gauges.
 
 ## The problem
 
@@ -83,6 +83,7 @@ Queue-only instruments:
 
 - `queue.messages.acknowledged`
 - `queue.messages.dead_lettered`
+- `queue.dead_letter.messages.purged`
 
 These instruments use `queue.name`.
 

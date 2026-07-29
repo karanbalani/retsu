@@ -1,83 +1,67 @@
 # Caching
 
-Retsu has two independent cache layers:
+Retsu has two cache layers. Each layer can be turned on or off separately:
 
-- a process-local in-memory cache for `queue_id -> queue_name`;
-- a distributed Redis-protocol cache for complete queue details.
+- A local in-memory cache maps a queue ID to its name inside one API or worker process.
+- A shared Redis-compatible cache stores complete queue details for all API and worker processes.
 
-PostgreSQL remains the source of truth. Dragonfly is used by the local
-development stack, but the application uses Redis-protocol names and commands
-so Redis or Valkey can replace it.
+PostgreSQL remains the source of truth. The local development stack uses Dragonfly for the shared cache. Redis or Valkey can be used instead because Retsu uses compatible commands.
 
-## Read paths
+## What each layer is for
 
-A queue-name lookup checks the in-memory cache first. A miss uses the normal
-queue-details path, extracts the name, and stores only that name in memory.
+Queue names cannot change, so keeping them in each process avoids repeated PostgreSQL reads when metrics need `queue.name`.
+
+Queue settings can change. The shared cache therefore stores the complete queue details for five minutes at a time. Enqueue uses these details to choose the message lifetime from the request or the queue default.
+
+## Reading queue data
+
+A queue-name lookup checks the local cache first. If the name is missing, it follows the complete-details path and saves only the name locally.
+
+```mermaid
+flowchart LR
+    Operation["Queue operation"] --> Local{"Name in this process?"}
+    Local -->|"Yes"| Name["Use the name"]
+    Local -->|"No"| Shared{"Details in shared cache?"}
+    Shared -->|"Yes"| Remember["Save and use the name"]
+    Shared -->|"No"| Database[("Read PostgreSQL")]
+    Database --> Remember
+```
+
+A complete-details lookup skips the local name cache:
 
 ```text
-queue_name(queue_id)
-    -> in-memory queue-name cache
-    -> distributed queue-details cache
+queue details
+    -> shared cache
     -> PostgreSQL
 ```
 
-A queue-details lookup deliberately skips the process-local name cache:
+Enqueue uses the complete details to resolve the effective message lifetime, then inserts the message into PostgreSQL without reading the queue table again.
 
-```text
-queue_details(queue_id)
-    -> distributed queue-details cache
-    -> PostgreSQL
-```
+## Creating and updating a queue
 
-Message enqueueing uses this complete-details path to resolve the effective
-message TTL. The PostgreSQL write then inserts directly into `queue_message`
-without reading the `queue` table again.
-
-The in-memory cache is private to one process. The distributed cache is shared
-by API and worker replicas.
-
-## Write-through
-
-Queue creation writes in this order:
+Retsu writes queue data in this order:
 
 ```text
 PostgreSQL
-    -> distributed queue-details cache
-    -> in-memory queue-name cache
+    -> shared queue-details cache
+    -> local queue-name cache
 ```
 
-Cache writes happen only after PostgreSQL accepts the queue. Cache failures are
-logged and do not turn a committed database write into an API failure.
+Cache writes happen only after PostgreSQL accepts the change. A cache failure is logged and does not turn a committed database write into an API failure.
 
-Queue mutations use write-through replacement rather than cache invalidation.
-An update persists PostgreSQL first, then overwrites L2 and L1 as the repository
-call returns through the decorators.
+## Avoiding duplicate database reads
 
-## Stampede protection
+Inside one process, concurrent requests for the same missing queue name share one load.
 
-Moka coalesces concurrent in-memory misses for the same queue ID within one
-process.
+Across processes, the shared cache uses a short two-second loading marker for each queue. One process reads PostgreSQL and fills the cache while the others check every 10 milliseconds for the result. The marker expires automatically.
 
-On a distributed miss, a process claims a short-lived per-queue load lock using
-Redis `SET NX PX`. The lock holder checks the distributed value again, loads
-PostgreSQL once, and populates the distributed cache. Other processes wait for
-the value or for the lock lease to expire before attempting to load.
+If the shared cache is unavailable, Retsu reads PostgreSQL directly. The local cache can still combine matching reads inside one process.
 
-The lock expires after its short lease; no explicit unlock command is needed.
-If the distributed cache is unavailable, Retsu fails open to PostgreSQL;
-per-process Moka coalescing still applies.
+## Expiration and limits
 
-## Expiration
+Complete queue details stay in the shared cache for five minutes. A missing queue is remembered for five seconds, which prevents repeated database reads while allowing a newly created queue to appear quickly.
 
-Complete queue details have a five-minute safety TTL.
-
-Missing queues are cached for five seconds. This bounds repeated database reads
-for nonexistent queue IDs while allowing a later creation to become visible
-quickly.
-
-Queue names have no time-based expiration because names are immutable. They can
-still be evicted when their process-local cache reaches either configured
-capacity limit.
+Local queue names do not expire because names cannot change. Entries can still be removed when the configured entry or estimated memory limit is reached.
 
 ## Configuration
 
@@ -92,11 +76,11 @@ cache:
   distributed:
     enabled: true
     url: redis://127.0.0.1:24251
-    connection_timeout_milliseconds: 50
+    connection_timeout_milliseconds: 500
     command_timeout_milliseconds: 20
 ```
 
-Environment overrides follow the same hierarchy:
+Use environment variables to override individual values:
 
 ```bash
 RETSU_CACHE__IN_MEMORY__ENABLED=false
@@ -105,35 +89,29 @@ RETSU_CACHE__DISTRIBUTED__ENABLED=false
 RETSU_CACHE__DISTRIBUTED__URL=redis://cache.internal:6379
 ```
 
-The distributed connection is multiplexed and reconnecting. A connection
-attempt has a 50 ms default budget and each command has a 20 ms default budget.
+`max_entries` accepts 1 through 1,000,000. `max_capacity_bytes` accepts 1 through 4,294,967,295. The byte value estimates the memory used by cached queue IDs and names; it is not a limit for the complete process.
 
-The two cache layers can be enabled independently. The decorator remains in the
-repository chain when disabled, but its cache client is not constructed and it
-delegates directly to the next repository:
+The shared connection reconnects when needed. A connection attempt has a 500 millisecond default limit, and each command has a 20 millisecond default limit. Both timeout settings accept 1 through 10,000 milliseconds.
 
-- no in-memory cache makes `queue_name` use `queue_details` directly;
-- no distributed cache makes `queue_details` use PostgreSQL directly;
-- disabling both makes all queue metadata reads use PostgreSQL.
+When a layer is disabled:
+
+- Without the local cache, a queue-name lookup uses the complete-details path directly.
+- Without the shared cache, a complete-details lookup uses PostgreSQL directly.
+- Without either cache, all queue metadata reads use PostgreSQL.
 
 ## Metrics
-
-Retsu exports:
 
 | Metric | Labels | Meaning |
 | --- | --- | --- |
 | `cache.requests` | `cache.name`, `outcome` | Cache hits and misses |
-| `cache.load.duration` | `cache.name`, `outcome` | Source-load latency after a miss |
+| `cache.load.duration` | `cache.name`, `outcome` | Time spent reading a missing value from PostgreSQL |
 
-The cache names are `queue_names` and `queue_details`. Load outcomes are
-`success`, `not_found`, and `error`.
+The cache names are `queue_names` and `queue_details`. Request outcomes are `hit` and `miss`. Load outcomes are `success`, `not_found`, and `error`.
 
 ## Main implementation files
 
-- `src/cache/memory.rs` contains the process-local Moka cache.
-- `src/cache/redis_protocol.rs` contains the vendor-neutral Redis-protocol
-  connection and commands.
-- `src/modules/queue/infrastructure/l2.rs` owns queue-details keys,
-  serialization, TTLs, distributed load locking, and PostgreSQL fallback.
-- `src/modules/queue/infrastructure/l1.rs` owns process-local queue-name
-  caching and delegates misses to the distributed repository.
+- `src/cache/memory.rs` contains the local in-memory cache.
+- `src/cache/redis_protocol.rs` contains the shared cache connection and commands.
+- `src/modules/queue/infrastructure/l1.rs` caches local queue names.
+- `src/modules/queue/infrastructure/l2.rs` caches shared queue details and falls back to PostgreSQL.
+- `src/modules/queue/infrastructure/postgres.rs` reads and writes the source of truth.
