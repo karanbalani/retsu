@@ -1,0 +1,50 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  prometheus:
+    image: prom/prometheus:v3.13.1
+    profiles:
+      - observability
+    labels:
+      retsu.observability.component: prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yaml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${RETSU_LOCAL_PROMETHEUS_RETENTION_TIME:-72h}
+      - --storage.tsdb.retention.size=${RETSU_LOCAL_PROMETHEUS_RETENTION_SIZE:-1GB}
+      - --web.enable-lifecycle
+      - --web.enable-remote-write-receiver
+      - --enable-feature=exemplar-storage
+    volumes:
+      - ./prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "127.0.0.1:${RETSU_LOCAL_PROMETHEUS_PORT:-24245}:9090"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -q -O /dev/null http://127.0.0.1:9090/-/ready",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 5s
+    stop_grace_period: 10s
+    cpus: "0.75"
+    mem_limit: 512m
+    pids_limit: 128
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m,mode=1777
+    networks:
+      - observability
+    logging: *default-logging

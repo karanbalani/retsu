@@ -1,0 +1,94 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  k6:
+    image: grafana/k6:2.0.0
+    profiles:
+      - load
+    labels:
+      retsu.observability.component: k6
+    working_dir: /scripts
+    environment:
+      BASE_URL: ${BASE_URL:-http://api:2424}
+      PROMETHEUS_URL: ${PROMETHEUS_URL:-http://prometheus:9090}
+      K6_OUT: experimental-prometheus-rw
+      K6_PROMETHEUS_RW_SERVER_URL: http://prometheus:9090/api/v1/write
+      K6_PROMETHEUS_RW_TREND_STATS: p(50),p(95),p(99),avg,max
+      K6_PROMETHEUS_RW_STALE_MARKERS: "true"
+      K6_SYSTEM_TAGS: status,method,scenario,expected_response
+      RUN_ID:
+      QUEUE_PREFIX:
+      QUEUE_COUNT:
+      PAYLOAD_BYTES:
+      PRIORITY_MIX:
+      MESSAGE_TTL_SECONDS:
+      VISIBILITY_TIMEOUT_SECONDS:
+      MAX_DELIVERY_ATTEMPTS:
+      REQUEST_TIMEOUT:
+      SETUP_TIMEOUT:
+      GRACEFUL_STOP:
+      EMPTY_DEQUEUE_SLEEP_MS:
+      ENQUEUE_RATE:
+      ENQUEUE_DURATION:
+      ENQUEUE_PRE_ALLOCATED_VUS:
+      ENQUEUE_MAX_VUS:
+      PREFILL_MESSAGES:
+      CONSUME_VUS:
+      CONSUME_MAX_DURATION:
+      MIXED_DURATION:
+      MIXED_PREFILL_MESSAGES:
+      MIXED_PRODUCER_RATE:
+      MIXED_CONSUMER_RATE:
+      MIXED_PRE_ALLOCATED_VUS:
+      MIXED_MAX_VUS:
+      SATURATION_PREFILL_MESSAGES:
+      SATURATION_START_RATE:
+      SATURATION_RAMP_RATE:
+      SATURATION_SPIKE_RATE:
+      SATURATION_CONSUMER_RATIO:
+      SATURATION_WARMUP_DURATION:
+      SATURATION_RAMP_DURATION:
+      SATURATION_HOLD_DURATION:
+      SATURATION_SPIKE_DURATION:
+      SATURATION_RECOVERY_DURATION:
+      SATURATION_RAMP_DOWN_DURATION:
+      SATURATION_PRE_ALLOCATED_VUS:
+      SATURATION_MAX_VUS:
+      PRODUCTION_DAY_HOUR_SECONDS:
+      PRODUCTION_DAY_TRANSITION_SECONDS:
+      PRODUCTION_DAY_CONSUMER_HEADROOM:
+      PRODUCTION_DAY_PRODUCER_PRE_ALLOCATED_VUS:
+      PRODUCTION_DAY_PRODUCER_MAX_VUS:
+      PRODUCTION_DAY_CONSUMER_PRE_ALLOCATED_VUS:
+      PRODUCTION_DAY_CONSUMER_MAX_VUS:
+      PRODUCTION_DAY_DRAIN_RATE:
+      PRODUCTION_DAY_DRAIN_RAMP_UP_SECONDS:
+      PRODUCTION_DAY_DRAIN_HOLD_SECONDS:
+      PRODUCTION_DAY_DRAIN_RAMP_DOWN_SECONDS:
+      PRODUCTION_DAY_CLEANER_WAIT_SECONDS:
+      MAX_STATUS_ERROR_RATE:
+      MIN_CHECK_RATE:
+      MIN_LIFECYCLE_CORRECTNESS_RATE:
+      ENQUEUE_P95_MS:
+      DEQUEUE_P95_MS:
+      ACKNOWLEDGE_P95_MS:
+    volumes:
+      - ../../../load/k6:/scripts:ro
+    networks:
+      - observability
+    cpus: "${RETSU_LOCAL_K6_CPUS:-2}"
+    mem_limit: ${RETSU_LOCAL_K6_MEMORY:-1g}
+    pids_limit: ${RETSU_LOCAL_K6_PIDS:-256}
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m,mode=1777
+    restart: "no"
+    logging: *default-logging

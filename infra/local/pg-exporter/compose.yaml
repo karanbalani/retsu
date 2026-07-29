@@ -1,0 +1,39 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  pg-exporter:
+    image: pgsty/pg_exporter:1.4.0
+    profiles:
+      - observability
+    labels:
+      retsu.observability.component: pg-exporter
+    environment:
+      PG_EXPORTER_URL: "postgresql://${RETSU_LOCAL_POSTGRES_MONITOR_USER:-retsu_monitor}:${RETSU_LOCAL_POSTGRES_MONITOR_PASSWORD:-retsu_monitor_local}@postgres:5432/${RETSU_LOCAL_POSTGRES_DB:-retsu}?sslmode=disable&application_name=pg_exporter"
+      PG_EXPORTER_CONFIG: /etc/pg_exporter.yml
+      PG_EXPORTER_AUTO_DISCOVERY: "false"
+      PG_EXPORTER_CONNECT_TIMEOUT: "1000"
+      PG_EXPORTER_FAIL_FAST: "false"
+    ports:
+      - "127.0.0.1:${RETSU_LOCAL_PG_EXPORTER_PORT:-24248}:9630"
+    expose:
+      - "9630"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    stop_grace_period: 10s
+    cpus: "0.25"
+    mem_limit: 192m
+    pids_limit: 64
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - backend
+      - observability
+    logging: *default-logging

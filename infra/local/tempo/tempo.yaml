@@ -13,18 +13,6 @@ distributor:
         http:
           endpoint: 0.0.0.0:4318
 
-metrics_generator:
-  registry:
-    external_labels:
-      source: tempo
-      deployment_environment: local
-
-  storage:
-    path: /var/tempo/generator/wal
-    remote_write:
-      - url: http://prometheus:9090/api/v1/write
-        send_exemplars: true
-
 storage:
   trace:
     backend: local
@@ -37,12 +25,6 @@ overrides:
   defaults:
     compaction:
       block_retention: 24h
-
-    metrics_generator:
-      processors:
-        - span-metrics
-        - service-graphs
-      generate_native_histograms: both
 
 usage_report:
   reporting_enabled: false

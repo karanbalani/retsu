@@ -1,0 +1,104 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  pgbouncer:
+    image: edoburu/pgbouncer:v1.25.2-p0
+    labels:
+      retsu.observability.component: pgbouncer
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: ${RETSU_LOCAL_POSTGRES_DB:-retsu}
+      DB_USER: ${RETSU_LOCAL_POSTGRES_USER:-retsu}
+      DB_PASSWORD: ${RETSU_LOCAL_POSTGRES_PASSWORD:-retsu_local}
+      LISTEN_PORT: "6432"
+      AUTH_TYPE: scram-sha-256
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: "64"
+      DEFAULT_POOL_SIZE: "16"
+      RESERVE_POOL_SIZE: "4"
+      RESERVE_POOL_TIMEOUT: "1"
+      MAX_DB_CONNECTIONS: "20"
+      MAX_USER_CONNECTIONS: "20"
+      MAX_PREPARED_STATEMENTS: "128"
+      SERVER_ROUND_ROBIN: "1"
+      SERVER_CONNECT_TIMEOUT: "5"
+      SERVER_LOGIN_RETRY: "3"
+      SERVER_IDLE_TIMEOUT: "60"
+      SERVER_LIFETIME: "3600"
+      CLIENT_LOGIN_TIMEOUT: "10"
+      LOG_CONNECTIONS: "0"
+      LOG_DISCONNECTIONS: "0"
+      LOG_POOLER_ERRORS: "1"
+      LOG_STATS: "0"
+      STATS_USERS: ${RETSU_LOCAL_POSTGRES_USER:-retsu}
+    ports:
+      - "127.0.0.1:${RETSU_LOCAL_PGBOUNCER_PORT:-24250}:6432"
+    expose:
+      - "6432"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "PGPASSWORD=\"$${DB_PASSWORD}\" psql --host 127.0.0.1 --port 6432 --username \"$${DB_USER}\" --dbname \"$${DB_NAME}\" --tuples-only --no-align --command 'SELECT 1' | grep -qx 1",
+        ]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+      start_period: 3s
+    init: true
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /etc/pgbouncer:rw,noexec,nosuid,size=1m,mode=0700,uid=70,gid=70
+      - /var/run/pgbouncer:rw,noexec,nosuid,size=1m,mode=0700,uid=70,gid=70
+    cpus: "0.25"
+    mem_limit: 64m
+    pids_limit: 64
+    restart: unless-stopped
+    stop_grace_period: 10s
+    networks:
+      - backend
+    logging: *default-logging
+
+  pgbouncer-exporter:
+    image: prometheuscommunity/pgbouncer-exporter:v0.12.1
+    profiles:
+      - observability
+    labels:
+      retsu.observability.component: pgbouncer-exporter
+    command:
+      - --web.listen-address=:9127
+      - --web.telemetry-path=/metrics
+      - --log.level=warn
+    environment:
+      PGBOUNCER_EXPORTER_CONNECTION_STRING: "postgresql://${RETSU_LOCAL_POSTGRES_USER:-retsu}:${RETSU_LOCAL_POSTGRES_PASSWORD:-retsu_local}@pgbouncer:6432/pgbouncer?sslmode=disable&connect_timeout=5"
+    expose:
+      - "9127"
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: "0.10"
+    mem_limit: 64m
+    pids_limit: 32
+    restart: unless-stopped
+    stop_grace_period: 10s
+    networks:
+      - backend
+      - observability
+    logging: *default-logging

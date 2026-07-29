@@ -1,0 +1,129 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-retsu-environment: &retsu-environment
+  RETSU_ENVIRONMENT: local
+  RETSU_DATABASE__URL: "postgres://${RETSU_LOCAL_POSTGRES_USER:-retsu}:${RETSU_LOCAL_POSTGRES_PASSWORD:-retsu_local}@postgres:5432/${RETSU_LOCAL_POSTGRES_DB:-retsu}"
+  RETSU_CACHE__DISTRIBUTED__URL: redis://dragonfly:6379
+  RETSU_LOGGING__FILTER: ${RETSU_LOCAL_LOG_FILTER:-info}
+  RETSU_LOGGING__FORMAT: json
+  RETSU_TELEMETRY__TRACES__ENABLED: ${RETSU_LOCAL_TRACES_ENABLED:-false}
+  RETSU_TELEMETRY__TRACES__FILTER: ${RETSU_LOCAL_TRACE_FILTER:-info}
+  RETSU_TELEMETRY__TRACES__ENDPOINT: http://otel-collector:4317
+
+x-retsu-runtime: &retsu-runtime
+  image: ${RETSU_LOCAL_IMAGE:-retsu-local:dev}
+  build:
+    context: ../../..
+    dockerfile: Dockerfile
+  init: true
+  read_only: true
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,size=16m,mode=1777
+  networks:
+    - backend
+    - observability
+  logging: *default-logging
+
+services:
+  migrate:
+    <<: *retsu-runtime
+    labels:
+      retsu.observability.component: migrate
+    command:
+      - migrate
+    environment:
+      <<: *retsu-environment
+      RETSU_DATABASE__MAX_CONNECTIONS: ${RETSU_LOCAL_MIGRATE_DATABASE_POOL_SIZE:-2}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      dragonfly:
+        condition: service_healthy
+    cpus: "0.25"
+    mem_limit: 128m
+    pids_limit: 64
+    restart: "no"
+    stop_grace_period: 10s
+
+  api:
+    <<: *retsu-runtime
+    labels:
+      retsu.observability.component: api
+    command:
+      - api
+    environment:
+      <<: *retsu-environment
+      RETSU_DATABASE__URL: "postgres://${RETSU_LOCAL_POSTGRES_USER:-retsu}:${RETSU_LOCAL_POSTGRES_PASSWORD:-retsu_local}@pgbouncer:6432/${RETSU_LOCAL_POSTGRES_DB:-retsu}"
+      RETSU_DATABASE__MAX_CONNECTIONS: ${RETSU_LOCAL_API_DATABASE_POOL_SIZE:-32}
+      RETSU_HTTP__BIND_ADDRESS: 0.0.0.0
+      RETSU_HTTP__PORT: "2424"
+    ports:
+      - "127.0.0.1:${RETSU_LOCAL_API_PORT:-2424}:2424"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      pgbouncer:
+        condition: service_healthy
+    cpus: "${RETSU_LOCAL_API_CPUS:-2}"
+    mem_limit: ${RETSU_LOCAL_API_MEMORY:-512m}
+    pids_limit: 128
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+  expired-message-cleaner:
+    <<: *retsu-runtime
+    labels:
+      retsu.observability.component: expired-message-cleaner
+    command:
+      - worker
+      - run
+      - queue
+      - expired-message-cleaner
+    environment:
+      <<: *retsu-environment
+      RETSU_DATABASE__MAX_CONNECTIONS: ${RETSU_LOCAL_WORKER_DATABASE_POOL_SIZE:-5}
+      RETSU_WORKER__MANAGEMENT__BIND_ADDRESS: 0.0.0.0
+      RETSU_WORKER__MANAGEMENT__PORT: "24247"
+    ports:
+      - "127.0.0.1:${RETSU_LOCAL_CLEANER_PORT:-24247}:24247"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    cpus: "0.25"
+    mem_limit: 128m
+    pids_limit: 64
+    restart: unless-stopped
+    stop_grace_period: 35s
+
+  state-metrics-collector:
+    <<: *retsu-runtime
+    labels:
+      retsu.observability.component: state-metrics-collector
+    command:
+      - worker
+      - run
+      - queue
+      - state-metrics-collector
+    environment:
+      <<: *retsu-environment
+      RETSU_DATABASE__MAX_CONNECTIONS: ${RETSU_LOCAL_WORKER_DATABASE_POOL_SIZE:-5}
+      RETSU_WORKER__MANAGEMENT__BIND_ADDRESS: 0.0.0.0
+      RETSU_WORKER__MANAGEMENT__PORT: "24247"
+    ports:
+      - "127.0.0.1:${RETSU_LOCAL_COLLECTOR_PORT:-24252}:24247"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    cpus: "0.25"
+    mem_limit: 128m
+    pids_limit: 64
+    restart: unless-stopped
+    stop_grace_period: 35s
