@@ -13,8 +13,8 @@ ghcr.io/karanbalani/retsu:YEAR.MONTH.RELEASE
 For example:
 
 ```console
-docker pull ghcr.io/karanbalani/retsu:2026.7.0
-docker run --rm ghcr.io/karanbalani/retsu:2026.7.0 --version
+docker pull ghcr.io/karanbalani/retsu:{{ retsu_version }}
+docker run --rm ghcr.io/karanbalani/retsu:{{ retsu_version }} --version
 ```
 
 Every release also has a `sha-<commit>` tag. There is no `latest` tag, so deployments must choose an explicit version or commit.
@@ -32,11 +32,11 @@ Images are built for Linux AMD64 and ARM64. The runtime image:
 Use the same image for each role:
 
 ```console
-docker run --rm [settings] ghcr.io/karanbalani/retsu:2026.7.0 migrate
-docker run --rm [settings] ghcr.io/karanbalani/retsu:2026.7.0 api
-docker run --rm [settings] ghcr.io/karanbalani/retsu:2026.7.0 worker run queue expired-message-cleaner
-docker run --rm [settings] ghcr.io/karanbalani/retsu:2026.7.0 worker run queue dead-letter-message-cleaner
-docker run --rm [settings] ghcr.io/karanbalani/retsu:2026.7.0 worker run queue state-metrics-collector
+docker run --rm [settings] ghcr.io/karanbalani/retsu:{{ retsu_version }} migrate
+docker run --rm [settings] ghcr.io/karanbalani/retsu:{{ retsu_version }} api
+docker run --rm [settings] ghcr.io/karanbalani/retsu:{{ retsu_version }} worker run queue expired-message-cleaner
+docker run --rm [settings] ghcr.io/karanbalani/retsu:{{ retsu_version }} worker run queue dead-letter-message-cleaner
+docker run --rm [settings] ghcr.io/karanbalani/retsu:{{ retsu_version }} worker run queue state-metrics-collector
 ```
 
 Replace `[settings]` with environment variables, network settings, and port mappings for the deployment. At minimum, every role needs the PostgreSQL URL. Queue operations also need the distributed cache URL when that cache is enabled.
@@ -49,7 +49,7 @@ docker run --rm \
   --env RETSU_HTTP__BIND_ADDRESS=0.0.0.0 \
   --env RETSU_DATABASE__URL=postgres://user:password@database:5432/retsu \
   --env RETSU_CACHE__DISTRIBUTED__URL=redis://cache:6379 \
-  ghcr.io/karanbalani/retsu:2026.7.0 api
+  ghcr.io/karanbalani/retsu:{{ retsu_version }} api
 ```
 
 Use a secret manager instead of putting production credentials directly in a shell command.
@@ -81,10 +81,10 @@ See [Configuration](configuration.md) and [Workers](workers.md).
 Maintainers create calendar-version tags from a clean local `main` that exactly matches `origin/main`:
 
 ```console
-just release-tag 2026.7.0
+just release-tag {{ retsu_version }}
 ```
 
-The command asks for confirmation and pushes the annotated `v2026.7.0` tag.
+The command asks for confirmation and pushes the annotated `v{{ retsu_version }}` tag.
 
 The release workflow then:
 
