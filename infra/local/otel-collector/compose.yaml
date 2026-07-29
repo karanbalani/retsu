@@ -2,7 +2,7 @@ x-logging: &default-logging
   driver: json-file
   options:
     max-size: "10m"
-    max-file: "3"
+    max-file: "2"
 
 services:
   otel-collector:
@@ -24,6 +24,7 @@ services:
     depends_on:
       tempo:
         condition: service_started
+    restart: unless-stopped
     stop_grace_period: 10s
     cpus: "0.35"
     mem_limit: 192m

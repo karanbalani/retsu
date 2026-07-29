@@ -7,12 +7,15 @@ cd "${repo_root}"
 
 compose=(docker compose --file infra/local/compose.yaml)
 
+export RETSU_LOCAL_TRACES_ENABLED=true
+
 "${compose[@]}" up -d --wait postgres dragonfly
 "${compose[@]}" exec -T postgres \
     sh /docker-entrypoint-initdb.d/observability.sh
-"${compose[@]}" --profile observability up -d --wait
+"${compose[@]}" --profile observability --profile tracing up -d --wait
 prometheus_address="$(
-    "${compose[@]}" --profile observability port prometheus 9090 \
+    "${compose[@]}" --profile observability --profile tracing \
+        port prometheus 9090 \
         | tail -n 1
 )"
 curl --fail --silent --show-error --request POST \

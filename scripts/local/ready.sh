@@ -40,13 +40,61 @@ wait_for_prometheus_targets() {
     local address="$1"
     local response=""
     local required_target_query='
-        (max(up{job="retsu",component="api"}) == bool 1 or vector(0))
-        + (max(up{job="retsu",component="dead-letter-message-cleaner"}) == bool 1 or vector(0))
-        + (max(up{job="retsu",component="expired-message-cleaner"}) == bool 1 or vector(0))
-        + (max(up{job="retsu",component="state-metrics-collector"}) == bool 1 or vector(0))
-        + (max(up{job="pgbouncer"}) == bool 1 or vector(0))
-        + (max(up{job="postgres"}) == bool 1 or vector(0))
-        + (max(up{job="containers"}) == bool 1 or vector(0))
+        (
+            (
+                (max(up{job="retsu",component="api"}) == bool 1)
+                * (time() - max(timestamp(up{job="retsu",component="api"})) < bool 30)
+            )
+            or vector(0)
+        )
+        + (
+            (
+                (max(up{job="retsu",component="dead-letter-message-cleaner"}) == bool 1)
+                * (time() - max(timestamp(up{job="retsu",component="dead-letter-message-cleaner"})) < bool 30)
+            )
+            or vector(0)
+        )
+        + (
+            (
+                (max(up{job="retsu",component="expired-message-cleaner"}) == bool 1)
+                * (time() - max(timestamp(up{job="retsu",component="expired-message-cleaner"})) < bool 30)
+            )
+            or vector(0)
+        )
+        + (
+            (
+                (max(up{job="retsu",component="state-metrics-collector"}) == bool 1)
+                * (time() - max(timestamp(up{job="retsu",component="state-metrics-collector"})) < bool 30)
+            )
+            or vector(0)
+        )
+        + (
+            (
+                (max(up{job="postgres"}) == bool 1)
+                * (time() - max(timestamp(up{job="postgres"})) < bool 30)
+            )
+            or vector(0)
+        )
+        + (max(pg_up{job="postgres"}) == bool 1 or vector(0))
+        + (
+            (
+                (max(up{job="pgbouncer"}) == bool 1)
+                * (time() - max(timestamp(up{job="pgbouncer"})) < bool 30)
+            )
+            or vector(0)
+        )
+        + (max(pgbouncer_up{job="pgbouncer"}) == bool 1 or vector(0))
+        + (
+            (
+                (max(up{job="containers"}) == bool 1)
+                * (time() - max(timestamp(up{job="containers"})) < bool 30)
+            )
+            or vector(0)
+        )
+        + (
+            (time() - max(container_last_seen{job="containers",component="api"}) < bool 30)
+            or vector(0)
+        )
     '
 
     for _ in $(seq 1 30); do
@@ -58,19 +106,26 @@ wait_for_prometheus_targets() {
                 || true
         )"
         if [[ "${response}" == *'"status":"success"'* ]] \
-            && [[ "${response}" == *',"7"]}]'* ]]; then
-            echo "Required Prometheus scrape targets are ready."
+            && [[ "${response}" == *',"10"]}]'* ]]; then
+            echo "Required Prometheus targets and their dependencies are ready."
             return
         fi
         sleep 2
     done
 
-    echo "Required Prometheus scrape targets did not become ready within 60 seconds." >&2
-    echo "Expected: retsu/api, retsu/dead-letter-message-cleaner, retsu/expired-message-cleaner, retsu/state-metrics-collector, pgbouncer, postgres, and containers." >&2
-    echo "Current target status:" >&2
+    echo "Required Prometheus targets did not become ready within 60 seconds." >&2
+    echo "Expected fresh samples from all four Retsu roles, PostgreSQL, PgBouncer, and cAdvisor; PostgreSQL and PgBouncer must also report backend health." >&2
+    echo "Current exporter target status:" >&2
     curl --fail --silent --show-error --max-time 5 \
         --get \
         --data-urlencode 'query=up{job=~"retsu|pgbouncer|postgres|containers"}' \
+        "http://${address}/api/v1/query" >&2 \
+        || true
+    echo >&2
+    echo "Current dependency and container status:" >&2
+    curl --fail --silent --show-error --max-time 5 \
+        --get \
+        --data-urlencode 'query=pg_up{job="postgres"} or pgbouncer_up{job="pgbouncer"} or container_last_seen{job="containers",component="api"}' \
         "http://${address}/api/v1/query" >&2 \
         || true
     echo >&2
@@ -87,6 +142,7 @@ wait_for_service \
 wait_for_service \
     state-metrics-collector 24247 /health/ready \
     "State-metrics collector"
+wait_for_service tempo 3200 /ready Tempo
 wait_for_service prometheus 9090 /-/ready Prometheus
 prometheus_address="$(
     "${compose[@]}" --profile observability port prometheus 9090 \

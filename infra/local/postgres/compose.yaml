@@ -2,7 +2,7 @@ x-logging: &default-logging
   driver: json-file
   options:
     max-size: "10m"
-    max-file: "3"
+    max-file: "2"
 
 services:
   postgres:
@@ -12,7 +12,7 @@ services:
     command:
       - postgres
       - -c
-      - "max_connections=${RETSU_LOCAL_POSTGRES_MAX_CONNECTIONS:-100}"
+      - max_connections=128
       - -c
       - shared_preload_libraries=pg_stat_statements
       - -c
@@ -32,7 +32,7 @@ services:
       - -c
       - log_checkpoints=on
       - -c
-      - log_temp_files=0
+      - "log_temp_files=${RETSU_LOCAL_POSTGRES_LOG_TEMP_FILES_KB:-1024}kB"
       - -c
       - "log_min_duration_statement=${RETSU_LOCAL_POSTGRES_SLOW_QUERY_MS:--1}"
     environment:
@@ -50,16 +50,17 @@ services:
       test:
         [
           "CMD-SHELL",
-          "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\"",
+          "pg_isready --host 127.0.0.1 --username \"$${POSTGRES_USER}\" --dbname \"$${POSTGRES_DB}\"",
         ]
       interval: 2s
       timeout: 5s
       retries: 15
       start_period: 5s
-    stop_grace_period: 10s
-    cpus: "${RETSU_LOCAL_POSTGRES_CPUS:-2}"
-    mem_limit: ${RETSU_LOCAL_POSTGRES_MEMORY:-1g}
-    pids_limit: ${RETSU_LOCAL_POSTGRES_PIDS:-256}
+    restart: unless-stopped
+    stop_grace_period: 45s
+    cpus: "3"
+    mem_limit: 2g
+    pids_limit: 256
     networks:
       - backend
     logging: *default-logging
