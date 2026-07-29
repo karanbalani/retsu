@@ -17,7 +17,36 @@ use std::io::Write as _;
 use clap::Parser;
 use tracing::Instrument;
 
+// Paste the ASCII art between the raw string delimiters below.
+const ASCII_ART: &str = r#"
+                       ░██
+                       ░██
+░██░████  ░███████  ░████████  ░███████  ░██    ░██
+░███     ░██    ░██    ░██    ░██        ░██    ░██
+░██      ░█████████    ░██     ░███████  ░██    ░██
+░██      ░██           ░██           ░██ ░██   ░███
+░██       ░███████      ░████  ░███████   ░█████░██
+"#;
+
 pub async fn run() -> anyhow::Result<()> {
+    {
+        let mut stderr = std::io::stderr().lock();
+        let ascii_art = ASCII_ART.trim_matches('\n');
+
+        if !ascii_art.is_empty() {
+            writeln!(stderr)?;
+            writeln!(stderr, "{ascii_art}")?;
+            writeln!(stderr)?;
+        }
+
+        writeln!(
+            stderr,
+            "{} v{}",
+            env!("CARGO_PKG_NAME"),
+            env!("CARGO_PKG_VERSION")
+        )?;
+    }
+
     let prepared = entrypoints::prepare(cli::Cli::parse())?;
 
     let runtime: entrypoints::RuntimeEntrypoint = match prepared {
