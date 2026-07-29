@@ -32,6 +32,50 @@ pub(in crate::modules::queue) enum AcknowledgeMessageOutcome {
 }
 
 #[derive(Debug)]
+pub(in crate::modules::queue) struct QueueDeadLetterMessagesPurgeSummary {
+    queue_name: String,
+    purged: u64,
+}
+
+impl QueueDeadLetterMessagesPurgeSummary {
+    pub(in crate::modules::queue) fn new(queue_name: String, purged: u64) -> Self {
+        Self { queue_name, purged }
+    }
+
+    pub(in crate::modules::queue) fn queue_name(&self) -> &str {
+        &self.queue_name
+    }
+
+    pub(in crate::modules::queue) fn purged(&self) -> u64 {
+        self.purged
+    }
+}
+
+#[derive(Debug)]
+pub(in crate::modules::queue) struct DeadLetterMessagesPurgeSummary {
+    per_queue: Vec<QueueDeadLetterMessagesPurgeSummary>,
+}
+
+impl DeadLetterMessagesPurgeSummary {
+    pub(in crate::modules::queue) fn new(
+        per_queue: Vec<QueueDeadLetterMessagesPurgeSummary>,
+    ) -> Self {
+        Self { per_queue }
+    }
+
+    pub(in crate::modules::queue) fn per_queue(&self) -> &[QueueDeadLetterMessagesPurgeSummary] {
+        &self.per_queue
+    }
+
+    pub(in crate::modules::queue) fn purged(&self) -> u64 {
+        self.per_queue
+            .iter()
+            .map(QueueDeadLetterMessagesPurgeSummary::purged)
+            .sum()
+    }
+}
+
+#[derive(Debug)]
 pub(in crate::modules::queue) struct QueueExpiredMessagesCleanupSummary {
     queue_name: String,
     never_delivered: u64,
@@ -139,4 +183,10 @@ pub(in crate::modules::queue) trait QueueRepository {
         &self,
         batch_size: u32,
     ) -> Result<ExpiredMessagesCleanupSummary, anyhow::Error>;
+
+    async fn purge_dead_letter_messages(
+        &self,
+        retention_seconds: i64,
+        batch_size: u32,
+    ) -> Result<DeadLetterMessagesPurgeSummary, anyhow::Error>;
 }

@@ -81,6 +81,9 @@ wait_for_service \
     expired-message-cleaner 24247 /health/ready \
     "Expired-message cleaner"
 wait_for_service \
+    dead-letter-message-cleaner 24247 /health/ready \
+    "Dead-letter-message cleaner"
+wait_for_service \
     state-metrics-collector 24247 /health/ready \
     "State-metrics collector"
 wait_for_service prometheus 9090 /-/ready Prometheus

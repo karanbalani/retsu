@@ -4,8 +4,9 @@ use crate::{database, observability::DatabaseMetrics};
 
 use super::super::{
     application::{
-        AcknowledgeMessageOutcome, CreateQueueOutcome, DequeueMessageOutcome,
-        ExpiredMessagesCleanupSummary, QueueExpiredMessagesCleanupSummary, QueueRepository,
+        AcknowledgeMessageOutcome, CreateQueueOutcome, DeadLetterMessagesPurgeSummary,
+        DequeueMessageOutcome, ExpiredMessagesCleanupSummary, QueueDeadLetterMessagesPurgeSummary,
+        QueueExpiredMessagesCleanupSummary, QueueRepository,
     },
     domain::{Message, MessagePriority, Queue, QueueConfigurationUpdate, QueueDetails},
 };
@@ -45,6 +46,12 @@ struct ProcessExpiredMessagesRow {
     queue_name: String,
     never_delivered: i64,
     previously_delivered: i64,
+}
+
+#[derive(sqlx::FromRow)]
+struct PurgeDeadLetterMessagesRow {
+    queue_name: String,
+    purged: i64,
 }
 
 #[derive(sqlx::FromRow)]
@@ -711,5 +718,89 @@ impl QueueRepository for PostgresQueueRepository {
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(ExpiredMessagesCleanupSummary::new(per_queue))
+    }
+
+    #[tracing::instrument(
+        name = "db.operation",
+        skip_all,
+        fields(
+            db.system.name = "postgresql",
+            db.operation.name = "queue.purge_dead_letter_messages",
+            db.pool.acquire.duration = field::Empty,
+            error.type = field::Empty,
+            otel.status_code = field::Empty,
+        ),
+        err
+    )]
+    async fn purge_dead_letter_messages(
+        &self,
+        retention_seconds: i64,
+        batch_size: u32,
+    ) -> Result<DeadLetterMessagesPurgeSummary, anyhow::Error> {
+        let mut connection = database::acquire(&self.pool, &self.metrics).await?;
+
+        let started = Instant::now();
+
+        let result = sqlx::query_as::<_, PurgeDeadLetterMessagesRow>(
+            r#"
+            WITH candidates AS MATERIALIZED (
+                SELECT message.id
+                FROM queue_dead_letter_message AS message
+                WHERE message.dead_lettered_at
+                    <= CURRENT_TIMESTAMP - ($1::BIGINT * INTERVAL '1 second')
+                ORDER BY
+                    message.dead_lettered_at ASC,
+                    message.id ASC
+                FOR UPDATE OF message SKIP LOCKED
+                LIMIT $2
+            ),
+            deleted AS (
+                DELETE FROM queue_dead_letter_message AS message
+                USING candidates
+                WHERE message.id = candidates.id
+                RETURNING message.queue_id
+            )
+            SELECT
+                queue.name AS queue_name,
+                COUNT(*) AS purged
+            FROM deleted
+            JOIN queue
+                ON queue.id = deleted.queue_id
+            GROUP BY queue.name
+            ORDER BY queue.name
+            "#,
+        )
+        .bind(retention_seconds)
+        .bind(i64::from(batch_size))
+        .fetch_all(&mut *connection)
+        .await;
+
+        self.metrics.operation_finished(
+            "queue.purge_dead_letter_messages",
+            started.elapsed(),
+            result.is_ok(),
+        );
+
+        if let Err(error) = &result {
+            Span::current().record("error.type", database::error_type(error));
+            Span::current().record("otel.status_code", "ERROR");
+        }
+
+        let per_queue = result?
+            .into_iter()
+            .map(
+                |row| -> Result<QueueDeadLetterMessagesPurgeSummary, anyhow::Error> {
+                    let purged = u64::try_from(row.purged)
+                        .context("dead-letter purge query returned a negative purged count")?;
+
+                    Ok(QueueDeadLetterMessagesPurgeSummary::new(
+                        row.queue_name,
+                        purged,
+                    ))
+                },
+            )
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(DeadLetterMessagesPurgeSummary::new(per_queue))
     }
 }

@@ -7,8 +7,9 @@ use validator::Validate;
 
 pub(crate) use error::ConfigurationError;
 pub(crate) use schema::{
-    AppConfiguration, DatabaseConfig, DistributedCacheConfig, ExpiredMessageCleanerConfig,
-    InMemoryCacheConfig, LogFormat, StateMetricsCollectorConfig, WorkerConfig,
+    AppConfiguration, DatabaseConfig, DeadLetterMessageCleanerConfig, DistributedCacheConfig,
+    ExpiredMessageCleanerConfig, InMemoryCacheConfig, LogFormat, StateMetricsCollectorConfig,
+    WorkerConfig,
 };
 
 pub(crate) fn load(config_path: Option<&Path>) -> Result<AppConfiguration, ConfigurationError> {

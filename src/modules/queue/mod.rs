@@ -4,7 +4,7 @@ mod domain;
 mod infrastructure;
 mod worker;
 
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use actix_web::web;
 use sqlx::PgPool;
@@ -14,11 +14,12 @@ use super::definition::{ModuleDefinition, WorkerDefinition};
 
 use application::{
     AcknowledgeMessageCommand, AcknowledgeMessageError, CreateQueueCommand, CreateQueueError,
-    DequeueMessageCommand, DequeueMessageError, DequeuedMessage, EnqueueMessageCommand,
-    EnqueueMessageError, EnqueuedMessage, ExpiredMessagesCleanupSummary,
-    ProcessExpiredMessagesError, UpdateQueueCommand, UpdateQueueError, execute_acknowledge_message,
-    execute_create_queue, execute_dequeue_message, execute_enqueue_message,
-    execute_process_expired_messages, execute_update_queue,
+    DeadLetterMessagesPurgeSummary, DequeueMessageCommand, DequeueMessageError, DequeuedMessage,
+    EnqueueMessageCommand, EnqueueMessageError, EnqueuedMessage, ExpiredMessagesCleanupSummary,
+    ProcessExpiredMessagesError, PurgeDeadLetterMessagesError, UpdateQueueCommand,
+    UpdateQueueError, execute_acknowledge_message, execute_create_queue, execute_dequeue_message,
+    execute_enqueue_message, execute_process_expired_messages, execute_purge_dead_letter_messages,
+    execute_update_queue,
 };
 
 use crate::{
@@ -40,6 +41,12 @@ use domain::QueueDetails;
 type L2PostgresQueueRepository = L2QueueRepository<PostgresQueueRepository, RedisProtocolCache>;
 type QueueRepositoryChain = L1QueueRepository<L2PostgresQueueRepository>;
 
+fn dead_letter_message_cleaner_registration(configuration: &WorkerConfig) -> WorkerRegistration {
+    worker::dead_letter_message_cleaner_registration(
+        &configuration.queue.dead_letter_message_cleaner,
+    )
+}
+
 fn expired_message_cleaner_registration(configuration: &WorkerConfig) -> WorkerRegistration {
     worker::expired_message_cleaner_registration(&configuration.queue.expired_message_cleaner)
 }
@@ -56,6 +63,10 @@ fn queue_name_weight(queue_id: &Uuid, queue_name: &String) -> u32 {
 }
 
 const WORKERS: &[WorkerDefinition] = &[
+    WorkerDefinition::new(
+        worker::DEAD_LETTER_MESSAGE_CLEANER_NAME,
+        dead_letter_message_cleaner_registration,
+    ),
     WorkerDefinition::new(
         worker::EXPIRED_MESSAGE_CLEANER_NAME,
         expired_message_cleaner_registration,
@@ -192,6 +203,23 @@ impl QueueModule {
                 "previously_delivered",
                 queue.previously_delivered(),
             );
+        }
+
+        Ok(summary)
+    }
+
+    async fn purge_dead_letter_messages(
+        &self,
+        retention: Duration,
+        batch_size: u32,
+    ) -> Result<DeadLetterMessagesPurgeSummary, PurgeDeadLetterMessagesError> {
+        let summary =
+            execute_purge_dead_letter_messages(&self.queue_repository, retention, batch_size)
+                .await?;
+        let metrics = self.instrumentation.dead_letter_message_cleaner();
+
+        for queue in summary.per_queue() {
+            metrics.messages_purged(queue.queue_name(), queue.purged());
         }
 
         Ok(summary)
