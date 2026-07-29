@@ -11,8 +11,8 @@ use crate::{
 
 use super::super::{
     application::{
-        AcknowledgeMessageOutcome, CreateQueueOutcome, DequeueMessageOutcome,
-        ExpiredMessagesCleanupSummary, QueueRepository,
+        AcknowledgeMessageOutcome, CreateQueueOutcome, DeadLetterMessagesPurgeSummary,
+        DequeueMessageOutcome, ExpiredMessagesCleanupSummary, QueueRepository,
     },
     domain::{Message, Queue, QueueConfigurationUpdate, QueueDetails},
 };
@@ -293,6 +293,16 @@ where
         batch_size: u32,
     ) -> Result<ExpiredMessagesCleanupSummary, anyhow::Error> {
         self.source.process_expired_messages(batch_size).await
+    }
+
+    async fn purge_dead_letter_messages(
+        &self,
+        retention_seconds: i64,
+        batch_size: u32,
+    ) -> Result<DeadLetterMessagesPurgeSummary, anyhow::Error> {
+        self.source
+            .purge_dead_letter_messages(retention_seconds, batch_size)
+            .await
     }
 }
 

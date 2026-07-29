@@ -3111,7 +3111,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "up{job=\"retsu\",component=~\"expired-message-cleaner|state-metrics-collector\"}",
+          "expr": "up{job=\"retsu\",component=~\"dead-letter-message-cleaner|expired-message-cleaner|state-metrics-collector\"}",
           "legendFormat": "{{component}}",
           "range": true,
           "refId": "A"
@@ -4267,7 +4267,7 @@
   "templating": {
     "list": [
       {
-        "allValue": "api|expired-message-cleaner|state-metrics-collector",
+        "allValue": "api|dead-letter-message-cleaner|expired-message-cleaner|state-metrics-collector",
         "current": {
           "selected": true,
           "text": "All",

@@ -24,6 +24,13 @@ scrape_configs:
           process_mode: worker
 
       - targets:
+          - dead-letter-message-cleaner:24247
+        labels:
+          component: dead-letter-message-cleaner
+          deployment_environment: local
+          process_mode: worker
+
+      - targets:
           - state-metrics-collector:24247
         labels:
           component: state-metrics-collector
