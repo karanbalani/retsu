@@ -1,0 +1,36 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  tempo:
+    image: grafana/tempo:3.0.2
+    labels:
+      retsu.observability.component: tempo
+    command:
+      - -target=all
+      - -config.file=/etc/tempo.yaml
+    volumes:
+      - ./tempo.yaml:/etc/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    ports:
+      - "127.0.0.1:${RETSU_LOCAL_TEMPO_PORT:-24244}:3200"
+    expose:
+      - "4317"
+      - "4318"
+    stop_grace_period: 10s
+    cpus: "0.50"
+    mem_limit: 384m
+    pids_limit: 128
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m,mode=1777
+    networks:
+      - observability
+    logging: *default-logging

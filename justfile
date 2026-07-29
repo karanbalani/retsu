@@ -1,7 +1,9 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
 sqlx-cli-version := "0.9.0"
-observability-services := "otel-collector tempo prometheus pg-exporter cadvisor grafana"
+observability-services := "prometheus pg-exporter cadvisor grafana"
+tracing-services := "otel-collector tempo"
+compose := "docker compose --file infra/local/compose.yaml"
 
 # Docker Compose reads .env itself. Do not export Compose-only
 # RETSU_LOCAL_* variables into application processes.
@@ -82,7 +84,35 @@ integration-test:
 
 # Validate Docker Compose.
 compose-check:
-    docker compose config --quiet
+    {{ compose }} --profile observability --profile tracing --profile load config --quiet
+
+# Build the hardened image used by every local Retsu role.
+local-build:
+    {{ compose }} build migrate
+
+# Verify the local API, workers, Prometheus, and Grafana.
+local-ready:
+    ./scripts/local/ready.sh
+
+# Build and start the complete local runtime and observability stack.
+local-up: local-build
+    ./scripts/local/up.sh
+
+# Start the optional local tracing services after the local stack.
+local-up-tracing: local-up
+    ./scripts/local/up-tracing.sh
+
+# Show all local services, including stopped services.
+local-status:
+    {{ compose }} --profile observability --profile tracing --profile load ps --all
+
+# Stop the complete local stack without deleting persisted data.
+local-stop:
+    {{ compose }} --profile observability --profile tracing --profile load stop
+
+# Run one disposable local load scenario.
+local-load scenario="smoke":
+    ./scripts/local/load.sh "{{ scenario }}"
 
 # Run all local quality gates.
 quality: justfile-check fmt-check lint test compose-check
@@ -92,45 +122,45 @@ quality-full: quality integration-test
 
 # Reapply the idempotent PostgreSQL observability bootstrap.
 db-observability-init:
-    docker compose exec -T postgres \
+    {{ compose }} exec -T postgres \
         sh /docker-entrypoint-initdb.d/observability.sh
 
 # Start PostgreSQL and the distributed cache, then wait until healthy.
 db-up:
-    docker compose up -d --wait postgres dragonfly
+    {{ compose }} up -d --wait postgres dragonfly
     just db-observability-init
 
 # Stop PostgreSQL and the distributed cache without deleting PostgreSQL data.
 db-stop:
-    docker compose stop postgres dragonfly
+    {{ compose }} stop postgres dragonfly
 
 # Open psql inside the PostgreSQL container.
 db-shell:
-    docker compose exec postgres sh -c 'exec psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB"'
+    {{ compose }} exec postgres sh -c 'exec psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB"'
 
 # Stop observability services without deleting their data.
 observability-stop:
-    docker compose stop {{ observability-services }}
+    {{ compose }} --profile observability --profile tracing --profile load stop {{ observability-services }} {{ tracing-services }}
 
 # Start PostgreSQL and the complete observability stack.
 stack-up: db-up
-    docker compose --profile observability up -d --wait
+    {{ compose }} --profile observability --profile tracing up -d --wait {{ observability-services }} {{ tracing-services }}
 
 # Show every local service, including stopped services.
 stack-status:
-    docker compose --profile observability ps --all
+    {{ compose }} --profile observability --profile tracing --profile load ps --all
 
 # Follow logs for a Compose service.
 logs service="postgres":
-    docker compose --profile observability logs --follow "{{ service }}"
+    {{ compose }} --profile observability --profile tracing --profile load logs --follow "{{ service }}"
 
 # Stop and remove all local containers while preserving data.
 stack-down:
-    docker compose --profile observability down --remove-orphans
+    {{ compose }} --profile observability --profile tracing --profile load down --remove-orphans
 
 [private]
 _stack-wipe:
-    docker compose --profile observability down --volumes --remove-orphans
+    {{ compose }} --profile observability --profile tracing --profile load down --volumes --remove-orphans
 
 # Delete all PostgreSQL, Prometheus, Tempo, and Grafana data.
 [confirm("Delete the complete local stack and all persisted data?")]
@@ -139,7 +169,8 @@ stack-wipe: _stack-wipe
 # Recreate the complete stack from scratch and apply migrations.
 [confirm("Delete and recreate PostgreSQL, Prometheus, Tempo, and Grafana from scratch?")]
 stack-reset config="config/retsu.yaml": _stack-wipe
-    docker compose --profile observability up -d --wait
+    {{ compose }} up -d --wait postgres dragonfly
+    {{ compose }} --profile observability --profile tracing up -d --wait {{ observability-services }} {{ tracing-services }}
     cargo run --locked -- --config "{{ config }}" migrate
 
 # Apply application-owned migrations.

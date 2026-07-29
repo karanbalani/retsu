@@ -1,0 +1,38 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  cadvisor:
+    image: ghcr.io/google/cadvisor:v0.60.5
+    profiles:
+      - observability
+    labels:
+      retsu.observability.component: cadvisor
+    command:
+      - --docker_only=true
+      - --housekeeping_interval=10s
+      - --enable_metrics=cpu,disk,diskIO,memory,network,oom_event
+      - --store_container_labels=false
+      - --whitelisted_container_labels=com.docker.compose.project,retsu.observability.component
+      - --containerd=/rootfs/run/docker/containerd/containerd.sock
+    privileged: true
+    devices:
+      - /dev/kmsg:/dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /dev/disk:/dev/disk:ro
+    ports:
+      - "127.0.0.1:${RETSU_LOCAL_CADVISOR_PORT:-24249}:8080"
+    networks:
+      - observability
+    stop_grace_period: 10s
+    cpus: "0.35"
+    mem_limit: 192m
+    pids_limit: 128
+    logging: *default-logging

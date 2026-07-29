@@ -1,0 +1,38 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  dragonfly:
+    image: docker.dragonflydb.io/dragonflydb/dragonfly:v1.38.0
+    labels:
+      retsu.observability.component: distributed-cache
+    command:
+      - --cache_mode=true
+      - --maxmemory=256mb
+      - --proactor_threads=1
+      - --primary_port_http_enabled=false
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    ports:
+      - "127.0.0.1:${RETSU_LOCAL_DISTRIBUTED_CACHE_PORT:-24251}:6379"
+    healthcheck:
+      test:
+        - CMD
+        - redis-cli
+        - ping
+      interval: 2s
+      timeout: 3s
+      retries: 15
+      start_period: 3s
+    cpus: "${RETSU_LOCAL_DRAGONFLY_CPUS:-0.5}"
+    mem_limit: ${RETSU_LOCAL_DRAGONFLY_MEMORY:-384m}
+    pids_limit: ${RETSU_LOCAL_DRAGONFLY_PIDS:-64}
+    stop_grace_period: 5s
+    networks:
+      - backend
+    logging: *default-logging

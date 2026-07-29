@@ -1,0 +1,27 @@
+name: ${COMPOSE_PROJECT_NAME:-retsu}
+
+include:
+  - postgres/compose.yaml
+  - pgbouncer/compose.yaml
+  - dragonfly/compose.yaml
+  - retsu/compose.yaml
+  - pg-exporter/compose.yaml
+  - prometheus/compose.yaml
+  - cadvisor/compose.yaml
+  - grafana/compose.yaml
+  - tempo/compose.yaml
+  - otel-collector/compose.yaml
+  - k6/compose.yaml
+
+networks:
+  backend:
+    driver: bridge
+
+  observability:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  prometheus-data:
+  tempo-data:
+  grafana-data:
