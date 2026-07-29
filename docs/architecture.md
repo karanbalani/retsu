@@ -84,7 +84,7 @@ See [Queues and messages](queues.md) for the requests, responses, and settings
 used in this flow. See [Caching](caching.md) for the in-memory and distributed
 queue metadata paths. See the [Codebase guide](codebase-guide.md) to
 understand the dependency setup and module boundaries. See
-[Local services](../infra/local/README.md) for the database, distributed cache,
+[Local services](https://github.com/karanbalani/retsu/blob/main/infra/local/README.md) for the database, distributed cache,
 and monitoring tools. The queue metrics guides explain
 [state rollups](queue-state-rollups.md),
 [metric cardinality](queue-metric-cardinality.md), and
