@@ -53,11 +53,6 @@ build:
 release-build:
     cargo build --locked --release --bin retsu
 
-# Create and push an annotated calendar-version release tag.
-[arg('version', pattern='[1-9][0-9]{3}\.(?:[1-9]|1[0-2])\.(?:0|[1-9][0-9]*)')]
-release-tag version:
-    ./scripts/release-tag.sh "{{ version }}"
-
 # Type-check all targets and features.
 check:
     cargo check --locked --all-targets --all-features
@@ -227,3 +222,8 @@ migration-new name:
 
 # Start PostgreSQL and apply migrations.
 setup: db-up migrate
+
+# Create and push an annotated calendar-version release tag.
+[arg('version', pattern='[1-9][0-9]{3}\.(?:[1-9]|1[0-2])\.(?:0|[1-9][0-9]*)')]
+release-tag version:
+    ./scripts/release-tag.sh "{{ version }}"
