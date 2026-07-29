@@ -41,6 +41,7 @@ wait_for_prometheus_targets() {
     local response=""
     local required_target_query='
         (max(up{job="retsu",component="api"}) == bool 1 or vector(0))
+        + (max(up{job="retsu",component="dead-letter-message-cleaner"}) == bool 1 or vector(0))
         + (max(up{job="retsu",component="expired-message-cleaner"}) == bool 1 or vector(0))
         + (max(up{job="retsu",component="state-metrics-collector"}) == bool 1 or vector(0))
         + (max(up{job="pgbouncer"}) == bool 1 or vector(0))
@@ -57,7 +58,7 @@ wait_for_prometheus_targets() {
                 || true
         )"
         if [[ "${response}" == *'"status":"success"'* ]] \
-            && [[ "${response}" == *',"6"]}]'* ]]; then
+            && [[ "${response}" == *',"7"]}]'* ]]; then
             echo "Required Prometheus scrape targets are ready."
             return
         fi
@@ -65,7 +66,7 @@ wait_for_prometheus_targets() {
     done
 
     echo "Required Prometheus scrape targets did not become ready within 60 seconds." >&2
-    echo "Expected: retsu/api, retsu/expired-message-cleaner, retsu/state-metrics-collector, pgbouncer, postgres, and containers." >&2
+    echo "Expected: retsu/api, retsu/dead-letter-message-cleaner, retsu/expired-message-cleaner, retsu/state-metrics-collector, pgbouncer, postgres, and containers." >&2
     echo "Current target status:" >&2
     curl --fail --silent --show-error --max-time 5 \
         --get \
