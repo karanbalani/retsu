@@ -1,22 +1,29 @@
-use std::time::Duration;
-
 use tokio_util::sync::CancellationToken;
 
-use crate::{app::ApplicationContext, worker::WorkerRegistration};
-
-const PROCESSING_INTERVAL: Duration = Duration::from_secs(60);
-const PROCESSING_BATCH_SIZE: u32 = 500;
+use crate::{
+    app::ApplicationContext, configuration::ExpiredMessageCleanerConfig, worker::WorkerRegistration,
+};
 
 pub(in crate::modules::queue) const NAME: &str = "expired-message-cleaner";
 
-pub(in crate::modules::queue) fn registration() -> WorkerRegistration {
+pub(in crate::modules::queue) fn registration(
+    configuration: &ExpiredMessageCleanerConfig,
+) -> WorkerRegistration {
+    let configuration = *configuration;
+
     WorkerRegistration {
         name: NAME,
-        run: Box::new(|context, cancellation| Box::pin(run(context, cancellation))),
+        run: Box::new(move |context, cancellation| {
+            Box::pin(run(context, cancellation, configuration))
+        }),
     }
 }
 
-async fn run(context: ApplicationContext, cancellation: CancellationToken) -> anyhow::Result<()> {
+async fn run(
+    context: ApplicationContext,
+    cancellation: CancellationToken,
+    configuration: ExpiredMessageCleanerConfig,
+) -> anyhow::Result<()> {
     loop {
         let summary = tokio::select! {
             biased;
@@ -25,7 +32,7 @@ async fn run(context: ApplicationContext, cancellation: CancellationToken) -> an
 
             result = context
                 .queue_module()
-                .process_expired_messages(PROCESSING_BATCH_SIZE) => result?
+                .process_expired_messages(configuration.batch_size) => result?
         };
 
         let processed = summary.processed();
@@ -39,8 +46,15 @@ async fn run(context: ApplicationContext, cancellation: CancellationToken) -> an
             );
         }
 
-        if processed == u64::from(PROCESSING_BATCH_SIZE) {
-            tokio::task::yield_now().await;
+        if processed == u64::from(configuration.batch_size) {
+            tokio::select! {
+                biased;
+
+                () = cancellation.cancelled() => return Ok(()),
+
+                () = tokio::time::sleep(configuration.saturated_batch_delay()) => {}
+            }
+
             continue;
         }
 
@@ -49,7 +63,7 @@ async fn run(context: ApplicationContext, cancellation: CancellationToken) -> an
 
             () = cancellation.cancelled() => return Ok(()),
 
-            () = tokio::time::sleep(PROCESSING_INTERVAL) => {}
+            () = tokio::time::sleep(configuration.processing_interval()) => {}
         }
     }
 }

@@ -23,10 +23,11 @@ use application::{
 
 use crate::{
     cache::{MemoryCache, MemoryCachePolicy, RedisProtocolCache},
-    configuration::{DistributedCacheConfig, InMemoryCacheConfig},
+    configuration::{DistributedCacheConfig, InMemoryCacheConfig, WorkerConfig},
     observability::{
         CacheMetrics, DatabaseMetrics, QueueInstrumentation, QueuePriorityStateMetric,
     },
+    worker::WorkerRegistration,
 };
 
 use infrastructure::{
@@ -39,6 +40,14 @@ use domain::QueueDetails;
 type L2PostgresQueueRepository = L2QueueRepository<PostgresQueueRepository, RedisProtocolCache>;
 type QueueRepositoryChain = L1QueueRepository<L2PostgresQueueRepository>;
 
+fn expired_message_cleaner_registration(configuration: &WorkerConfig) -> WorkerRegistration {
+    worker::expired_message_cleaner_registration(&configuration.queue.expired_message_cleaner)
+}
+
+fn state_metrics_collector_registration(configuration: &WorkerConfig) -> WorkerRegistration {
+    worker::state_metrics_collector_registration(&configuration.queue.state_metrics_collector)
+}
+
 fn queue_name_weight(queue_id: &Uuid, queue_name: &String) -> u32 {
     u32::try_from(
         std::mem::size_of_val(queue_id) + std::mem::size_of::<String>() + queue_name.capacity(),
@@ -49,11 +58,11 @@ fn queue_name_weight(queue_id: &Uuid, queue_name: &String) -> u32 {
 const WORKERS: &[WorkerDefinition] = &[
     WorkerDefinition::new(
         worker::EXPIRED_MESSAGE_CLEANER_NAME,
-        worker::expired_message_cleaner_registration,
+        expired_message_cleaner_registration,
     ),
     WorkerDefinition::new(
         worker::STATE_METRICS_COLLECTOR_NAME,
-        worker::state_metrics_collector_registration,
+        state_metrics_collector_registration,
     ),
 ];
 

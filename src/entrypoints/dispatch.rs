@@ -53,7 +53,9 @@ impl RuntimeEntrypoint {
             RuntimeProcess::Api => super::api::run(configuration, metrics).await,
 
             RuntimeProcess::Worker(worker) => {
-                super::worker::run(configuration, metrics, worker.into_registration()).await
+                let registration = worker.build_registration(&configuration.worker);
+
+                super::worker::run(configuration, metrics, registration).await
             }
 
             RuntimeProcess::Migrate => super::migrate::run(configuration).await,

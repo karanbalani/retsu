@@ -11,7 +11,7 @@ use actix_web::web;
 use definition::{ModuleDefinition, WorkerDefinition};
 use thiserror::Error;
 
-use crate::worker::WorkerRegistration;
+use crate::{configuration::WorkerConfig, worker::WorkerRegistration};
 
 pub(crate) use queue::QueueModule;
 
@@ -67,14 +67,14 @@ pub(crate) fn resolve_worker(
     Ok(ResolvedWorker {
         module_name: module_definition.name(),
         worker_name: worker_definition.name(),
-        registration: worker_definition.build_registration(),
+        definition: worker_definition,
     })
 }
 
 pub(crate) struct ResolvedWorker {
     module_name: &'static str,
     worker_name: &'static str,
-    registration: WorkerRegistration,
+    definition: &'static WorkerDefinition,
 }
 
 impl ResolvedWorker {
@@ -86,8 +86,13 @@ impl ResolvedWorker {
         self.worker_name
     }
 
+    pub(crate) fn build_registration(self, configuration: &WorkerConfig) -> WorkerRegistration {
+        self.definition.build_registration(configuration)
+    }
+
+    #[cfg(test)]
     pub(crate) fn into_registration(self) -> WorkerRegistration {
-        self.registration
+        self.build_registration(&WorkerConfig::default())
     }
 }
 

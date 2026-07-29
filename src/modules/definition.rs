@@ -1,6 +1,6 @@
 use actix_web::web;
 
-use crate::worker::WorkerRegistration;
+use crate::{configuration::WorkerConfig, worker::WorkerRegistration};
 
 pub(super) type ApiConfigurer = fn(&mut web::ServiceConfig);
 
@@ -48,13 +48,13 @@ impl ModuleDefinition {
 
 pub(super) struct WorkerDefinition {
     name: &'static str,
-    registration_factory: fn() -> WorkerRegistration,
+    registration_factory: fn(&WorkerConfig) -> WorkerRegistration,
 }
 
 impl WorkerDefinition {
     pub(super) const fn new(
         name: &'static str,
-        registration_factory: fn() -> WorkerRegistration,
+        registration_factory: fn(&WorkerConfig) -> WorkerRegistration,
     ) -> Self {
         Self {
             name,
@@ -66,7 +66,7 @@ impl WorkerDefinition {
         self.name
     }
 
-    pub(super) fn build_registration(&self) -> WorkerRegistration {
-        (self.registration_factory)()
+    pub(super) fn build_registration(&self, configuration: &WorkerConfig) -> WorkerRegistration {
+        (self.registration_factory)(configuration)
     }
 }
