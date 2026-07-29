@@ -200,15 +200,6 @@ impl Default for WorkerManagementConfig {
     }
 }
 
-impl Default for QueueWorkerConfig {
-    fn default() -> Self {
-        Self {
-            expired_message_cleaner: ExpiredMessageCleanerConfig::default(),
-            state_metrics_collector: StateMetricsCollectorConfig::default(),
-        }
-    }
-}
-
 fn expired_message_cleaner_processing_interval_seconds() -> u64 {
     60
 }

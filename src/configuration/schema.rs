@@ -216,7 +216,7 @@ impl WorkerConfig {
     }
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Validate)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Validate)]
 #[serde(default, deny_unknown_fields)]
 pub(crate) struct QueueWorkerConfig {
     #[validate(nested)]
