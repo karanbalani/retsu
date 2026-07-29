@@ -93,14 +93,14 @@ export const config = Object.freeze({
     priorityMix: priorityMix(stringValue("PRIORITY_MIX", "20,60,20")),
     visibilityTimeoutSeconds: integerValue(
         "VISIBILITY_TIMEOUT_SECONDS",
-        30,
+        10,
         1,
         21_600,
     ),
-    maxDeliveryAttempts: integerValue("MAX_DELIVERY_ATTEMPTS", 5, 1, 100),
+    maxDeliveryAttempts: integerValue("MAX_DELIVERY_ATTEMPTS", 3, 1, 100),
     messageTtlSeconds: integerValue(
         "MESSAGE_TTL_SECONDS",
-        3600,
+        180,
         1,
         2_592_000,
     ),
@@ -165,82 +165,70 @@ export const config = Object.freeze({
     ),
     saturationMaxVus: integerValue("SATURATION_MAX_VUS", 50, 1, 100_000),
 
-    productionDayHourSeconds: integerValue(
-        "PRODUCTION_DAY_HOUR_SECONDS",
-        60,
-        2,
-        3_600,
+    showcaseDurationMinutes: integerValue(
+        "SHOWCASE_DURATION_MINUTES",
+        5,
+        5,
+        20,
     ),
-    productionDayTransitionSeconds: integerValue(
-        "PRODUCTION_DAY_TRANSITION_SECONDS",
-        1,
-        1,
-        300,
-    ),
-    productionDayConsumerHeadroom: numberValue(
-        "PRODUCTION_DAY_CONSUMER_HEADROOM",
+    showcaseConsumerHeadroom: numberValue(
+        "SHOWCASE_CONSUMER_HEADROOM",
         1.3,
         1,
         10,
     ),
-    productionDayProducerPreAllocatedVus: integerValue(
-        "PRODUCTION_DAY_PRODUCER_PRE_ALLOCATED_VUS",
+    showcaseProducerPreAllocatedVus: integerValue(
+        "SHOWCASE_PRODUCER_PRE_ALLOCATED_VUS",
+        32,
+        1,
+        10_000,
+    ),
+    showcaseProducerMaxVus: integerValue(
+        "SHOWCASE_PRODUCER_MAX_VUS",
+        128,
+        1,
+        100_000,
+    ),
+    showcaseConsumerPreAllocatedVus: integerValue(
+        "SHOWCASE_CONSUMER_PRE_ALLOCATED_VUS",
         256,
         1,
         10_000,
     ),
-    productionDayProducerMaxVus: integerValue(
-        "PRODUCTION_DAY_PRODUCER_MAX_VUS",
-        512,
+    showcaseConsumerMaxVus: integerValue(
+        "SHOWCASE_CONSUMER_MAX_VUS",
+        384,
         1,
         100_000,
     ),
-    productionDayConsumerPreAllocatedVus: integerValue(
-        "PRODUCTION_DAY_CONSUMER_PRE_ALLOCATED_VUS",
-        768,
-        1,
-        10_000,
-    ),
-    productionDayConsumerMaxVus: integerValue(
-        "PRODUCTION_DAY_CONSUMER_MAX_VUS",
-        1_024,
+    showcaseDrainRate: integerValue(
+        "SHOWCASE_DRAIN_RATE",
+        195,
         1,
         100_000,
     ),
-    productionDayDrainRate: integerValue(
-        "PRODUCTION_DAY_DRAIN_RATE",
-        325,
-        1,
-        100_000,
-    ),
-    productionDayDrainRampUpSeconds: integerValue(
-        "PRODUCTION_DAY_DRAIN_RAMP_UP_SECONDS",
+    showcaseDrainRampUpSeconds: integerValue(
+        "SHOWCASE_DRAIN_RAMP_UP_SECONDS",
         1,
         1,
         300,
     ),
-    productionDayDrainHoldSeconds: integerValue(
-        "PRODUCTION_DAY_DRAIN_HOLD_SECONDS",
+    showcaseDrainHoldSeconds: integerValue(
+        "SHOWCASE_DRAIN_HOLD_SECONDS",
         29,
         1,
         3_600,
     ),
-    productionDayDrainRampDownSeconds: integerValue(
-        "PRODUCTION_DAY_DRAIN_RAMP_DOWN_SECONDS",
+    showcaseDrainRampDownSeconds: integerValue(
+        "SHOWCASE_DRAIN_RAMP_DOWN_SECONDS",
         2,
         1,
         300,
     ),
-    productionDayCleanerWaitSeconds: integerValue(
-        "PRODUCTION_DAY_CLEANER_WAIT_SECONDS",
-        75,
-        1,
-        3_600,
-    ),
 
     maximumStatusErrorRate: numberValue(
         "MAX_STATUS_ERROR_RATE",
-        0.01,
+        0.0001,
         0,
         1,
     ),
@@ -271,28 +259,19 @@ if (config.saturationMaxVus < config.saturationPreAllocatedVus) {
 }
 
 if (
-    config.productionDayTransitionSeconds >=
-    config.productionDayHourSeconds
+    config.showcaseProducerMaxVus <
+    config.showcaseProducerPreAllocatedVus
 ) {
     throw new Error(
-        "PRODUCTION_DAY_TRANSITION_SECONDS must be less than PRODUCTION_DAY_HOUR_SECONDS",
+        "SHOWCASE_PRODUCER_MAX_VUS must be at least SHOWCASE_PRODUCER_PRE_ALLOCATED_VUS",
     );
 }
 
 if (
-    config.productionDayProducerMaxVus <
-    config.productionDayProducerPreAllocatedVus
+    config.showcaseConsumerMaxVus <
+    config.showcaseConsumerPreAllocatedVus
 ) {
     throw new Error(
-        "PRODUCTION_DAY_PRODUCER_MAX_VUS must be at least PRODUCTION_DAY_PRODUCER_PRE_ALLOCATED_VUS",
-    );
-}
-
-if (
-    config.productionDayConsumerMaxVus <
-    config.productionDayConsumerPreAllocatedVus
-) {
-    throw new Error(
-        "PRODUCTION_DAY_CONSUMER_MAX_VUS must be at least PRODUCTION_DAY_CONSUMER_PRE_ALLOCATED_VUS",
+        "SHOWCASE_CONSUMER_MAX_VUS must be at least SHOWCASE_CONSUMER_PRE_ALLOCATED_VUS",
     );
 }

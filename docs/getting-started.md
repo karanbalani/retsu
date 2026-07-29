@@ -25,7 +25,7 @@ again without a background worker.
 2. Check that the required tools are ready:
 
    ```bash
-   just doctor
+   just doctor-host
    ```
 
 3. Start PostgreSQL and Dragonfly, then prepare the database:
@@ -73,6 +73,15 @@ just worker queue expired-message-cleaner
 
 The cleaner removes messages after their lifetime ends.
 
+Start the dead-letter retention cleaner on another management port:
+
+```bash
+RETSU_WORKER__MANAGEMENT__PORT=24253 \
+  just worker queue dead-letter-message-cleaner
+```
+
+It removes dead-letter records after the configured retention period.
+
 Start a state metrics collector in another terminal. One collector is enough
 for local development. Give it another management port:
 
@@ -104,12 +113,43 @@ Run the API or queue worker with activity tracking enabled:
 ```bash
 just api-observed
 just worker-observed queue expired-message-cleaner
+RETSU_WORKER__MANAGEMENT__PORT=24253 \
+  just worker-observed queue dead-letter-message-cleaner
 RETSU_WORKER__MANAGEMENT__PORT=24252 \
   just worker-observed queue state-metrics-collector
 ```
 
 See the [local services guide](https://github.com/karanbalani/retsu/blob/main/infra/local/README.md) for ports, logs, reset
 commands, and other details.
+
+## See Retsu in action
+
+Start the complete container-native stack:
+
+```bash
+just local-up
+```
+
+Open the Retsu Showcase dashboard at
+<http://127.0.0.1:24246/d/retsu-showcase/retsu-showcase>, then run the
+five-minute showcase in another terminal:
+
+```bash
+just local-showcase
+```
+
+Use a whole number from 5 through 20 to choose the total run time:
+
+```bash
+just local-showcase 20
+```
+
+The selected time includes the variable load, a clean drain, one full cleaner
+cycle, and final server-state verification. A five-minute run applies load for
+three minutes and completes in five minutes. Five queues receive a repeating
+50–150 RPS enqueue wave with two hot queues, 70/20/10 priority traffic, normal
+acknowledgements, retries, expiry, and dead-letter activity. The local stack
+retains dead-letter records for one hour before its cleaner removes them.
 
 ## Run project checks
 

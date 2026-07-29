@@ -12,7 +12,7 @@ PostgreSQL, and raise rates gradually.
 
 - k6 2.0.0 or later
 - A reachable Retsu API
-- A reachable Prometheus for production-day server-outcome verification
+- A reachable Prometheus for showcase server-outcome verification
 - A disposable database for benchmark series
 
 The examples assume the API is available at `http://127.0.0.1:2424`.
@@ -81,67 +81,47 @@ QUEUE_COUNT=4 \
   k6 run --summary-export=saturation-summary.json load/k6/saturation.js
 ```
 
-Run a compressed production day with message processing, retries, expiry, and
-dead-letter behavior:
+Run the local showcase with message processing, retries, expiry, and dead-letter
+behavior:
 
 ```bash
-RUN_ID=production-day-001 \
-  k6 run --summary-export=production-day-summary.json \
-  load/k6/production-day.js
+SHOWCASE_DURATION_MINUTES=5 \
+RUN_ID=showcase-001 \
+  k6 run load/k6/showcase.js
 ```
 
-The 24 one-minute targets are:
+The showcase repeats this deterministic one-minute enqueue wave:
 
 ```text
-50, 50, 50, 50, 50, 50, 50, 150, 250, 100, 90, 100,
-150, 250, 120, 100, 90, 50, 50, 50, 50, 150, 250, 50
+start 50 RPS
+6s → 90, 8s → 140, 10s → 70, 6s → 150,
+8s → 100, 10s → 50, 6s → 120, 6s → 50
 ```
 
-They total 2,400 requests per second across the compressed hours, which is
-exactly 144,000 enqueues and a 100/s day average. A one-second transition and
-59-second hold model each hour without changing the total. Five queues receive
-35/35/10/10/10 percent of producer traffic. Priorities use an independent
-70/20/10 HIGH/MEDIUM/LOW schedule, and the payload is a small five-field JSON
-object.
+That is 5,820 enqueues per minute, averaging 97 RPS while continuously moving
+between 50 and 150 RPS every 6–10 seconds. Five queues receive
+35/35/10/10/10 percent of producer traffic: two hot queues, two warm queues,
+and one lifecycle/fault queue. Priorities independently follow
+70/20/10 HIGH/MEDIUM/LOW, and each payload is a small five-field JSON object.
 
-Consumers run with 30 percent headroom and simulate 80 percent one-second,
-15 percent two-second, 4 percent three-second, and 0.8 percent five-second
-successful work. The final 0.2 percent is a deterministic 288-message fault
-cohort: 160 acknowledge on delivery two, 64 on delivery three, 32 exhaust
-three attempts into dead-letter storage, and 32 expire after being delivered.
-Deliberate missing acknowledgements have separate bounded metrics and do not
-count as service errors.
+Every queue uses a 10-second visibility timeout, three maximum delivery
+attempts, and a 180-second default message TTL. Normal messages explicitly use
+that TTL. Intentional fault messages use shorter TTLs so retry, expiry, and
+dead-letter behavior appears during the same run.
 
-The full run expects 187,200 day consumer iterations plus a bounded 9,945
-iteration drain. The exact successful enqueue distribution is:
+Consumers have 30 percent scheduling headroom. Work is deterministic:
+80 percent takes one second, 15 percent takes two seconds, 4 percent takes
+three seconds, and the final 1 percent is split between five-second work and
+intentional missing acknowledgements. The latter exercises one retry, two
+retries, expiry, and delivery-attempt exhaustion into the DLQ.
+The local dead-letter cleaner retains those records for one hour.
 
-| Dimension | Expected messages |
-| --- | ---: |
-| HIGH / MEDIUM / LOW | 100,800 / 28,800 / 14,400 |
-| hot-a / hot-b | 50,400 / 50,400 |
-| warm-a / warm-b / fault | 14,400 / 14,400 / 14,400 |
-| process 1s / 2s / 3s / 5s | 115,200 / 21,600 / 5,760 / 1,152 |
-| fault cohort | 288 |
-
-Consumers must observe 144,000 first, 256 second, and 96 third delivery
-attempts. They deliberately omit 416 acknowledgements and must complete
-143,936 acknowledgements. The server must report 32 dead letters, 32
-previously delivered expirations, no never-delivered expirations, and no ready
-or in-flight messages for the five run queues.
-
-Including five queue creations, the expected public queue API request count is
-485,086. The local run also makes eight read-only Prometheus queries during
-final verification, for 485,094 total k6 HTTP requests. A separate scenario
-starts after the active drain and keeps k6
-scheduled through the 75-second cleaner wait; it then checks the existing
-server counters and final queue state.
-
-The ten-second first-delivery or oldest-message SLO is intentionally deferred.
-This scenario does not claim or gate it.
-
-Repeat each benchmark at least three times with the same application image,
-replica count, cluster size, and database settings. Warm the environment before
-recording comparison runs.
+The selected 5–20 minutes bounds the complete k6 run. Its final two minutes
+contain a 32-second consumer drain, more than one full cleaner cycle of
+observation, and a 15-second final server-state verification. The default
+five-minute run therefore applies three minutes of active load and produces
+exactly 17,460 enqueues before completing at five minutes. This is a product
+demonstration, not a capacity benchmark.
 
 ## Container execution
 
@@ -155,8 +135,13 @@ just local-load enqueue
 just local-load consume
 just local-load mixed
 just local-load saturation
-just local-load production-day
+just local-showcase
+just local-showcase 20
 ```
+
+`just local-showcase` runs for five minutes total. Pass any whole number from
+5 through 20 to choose a longer run; values outside that range are rejected
+before k6 starts.
 
 Supply scenario overrides on the same command:
 
@@ -169,10 +154,14 @@ QUEUE_COUNT=4 \
 ```
 
 The local runner sends metrics to Prometheus and prints the normal k6 summary.
-Production-day results appear in the dedicated Retsu Production Day dashboard;
-the other scenarios appear in the load row of the Retsu Performance dashboard.
+Showcase results appear in the
+[Retsu Showcase dashboard](http://127.0.0.1:24246/d/retsu-showcase/retsu-showcase).
 The k6 container has no host port or persistent storage and is removed after
 every run.
+
+Allocate at least 8 CPUs and 8 GiB of memory to Docker for the complete local
+stack and k6 runner. The Compose resource profile is fixed so local showcase
+runs use consistent capacity.
 
 The pinned container can also run the scripts directly against a remote API:
 
@@ -191,34 +180,37 @@ For an API running on Docker Desktop's host, set
 | Variable | Default | Purpose |
 | --- | ---: | --- |
 | `BASE_URL` | `http://127.0.0.1:2424` | API root without `/v1` |
-| `PROMETHEUS_URL` | `http://127.0.0.1:24245` | Prometheus root used by production-day final verification |
+| `PROMETHEUS_URL` | `http://127.0.0.1:24245` | Prometheus root used by showcase final verification |
 | `RUN_ID` | Generated | Unique suffix for queues created by one run |
-| `QUEUE_PREFIX` | `retsu-k6` | Prefix for generated queue names |
+| `QUEUE_PREFIX` | `retsu-k6` | Queue prefix; `local-showcase` uses `retsu-showcase` |
 | `QUEUE_COUNT` | `1` | Queues spread across the workload |
 | `PAYLOAD_BYTES` | `1024` | ASCII payload size, including its marker |
 | `PRIORITY_MIX` | `20,60,20` | HIGH, MEDIUM, LOW integer weights |
-| `MESSAGE_TTL_SECONDS` | `3600` | TTL used for every generated message |
-| `VISIBILITY_TIMEOUT_SECONDS` | `30` | Visibility timeout for generated queues |
-| `MAX_DELIVERY_ATTEMPTS` | `5` | Delivery limit for generated queues |
+| `MESSAGE_TTL_SECONDS` | `180` | TTL used for every generated message |
+| `VISIBILITY_TIMEOUT_SECONDS` | `10` | Visibility timeout for generated queues |
+| `MAX_DELIVERY_ATTEMPTS` | `3` | Delivery limit for generated queues |
 | `REQUEST_TIMEOUT` | `5s` | Per-request timeout |
 | `SETUP_TIMEOUT` | `5m` | Queue creation and prefill timeout |
 | `GRACEFUL_STOP` | `10s` | Time allowed for in-flight iterations |
 | `EMPTY_DEQUEUE_SLEEP_MS` | `100` | Consumer pause after an empty dequeue |
+| `SHOWCASE_DURATION_MINUTES` | `5` | Total showcase run time; whole number from 5 through 20 |
 
 Each script also accepts the rate, duration, VU, and prefill variables shown in
 its example. `load/k6/support/config.js` contains the full list and safe bounds.
-The production-day defaults use 256/512 producer and 768/1,024 consumer
-preallocated/maximum VUs. `PRODUCTION_DAY_HOUR_SECONDS` can compress a
-development validation further, but the standard result is comparable only at
-the default 60 seconds. Production-day consumers do not apply
-`EMPTY_DEQUEUE_SLEEP_MS`: their arrival-rate executor already caps dequeue
-polling at the configured rate, and sleeping would only retain VUs.
+These local scenarios explicitly create queues with the values above; they do
+not change the API's fallback defaults when a caller omits queue settings.
+The showcase defaults use 32/128 producer and 256/384 consumer
+preallocated/maximum VUs. The final two minutes of the selected showcase
+duration are reserved for drain, cleaner observation, and verification.
+Showcase consumers do not apply `EMPTY_DEQUEUE_SLEEP_MS`:
+their arrival-rate executor already caps dequeue polling, and sleeping after an
+empty response would only retain VUs.
 
 ## Thresholds
 
 The default thresholds fail a run when:
 
-- HTTP or expected-status error rate reaches 1 percent.
+- HTTP or expected-status error rate reaches 0.01 percent.
 - check success or lifecycle correctness falls to 99 percent or lower.
 - p95 enqueue, dequeue, or acknowledge latency reaches 750 ms.
 
@@ -235,24 +227,10 @@ A saturation run may fail latency thresholds by design. The first stage where
 latency, errors, dropped iterations, or backlog grows without recovery marks a
 capacity boundary.
 
-The production-day scenario is stricter: unexpected HTTP and status errors
-must not exceed 0.01 percent, checks and lifecycle correctness must remain at
-least 99.99 percent, and dropped iterations must be zero. It also fails unless:
-
-- all 144,000 planned messages enqueue successfully with the exact priority,
-  queue, processing, and fault distributions above;
-- delivery attempts are exactly 144,000 / 256 / 96 for attempts one / two /
-  three;
-- intentional missing acknowledgements total exactly 416 with the planned
-  retry, dead-letter, and expiry split;
-- successful acknowledgements total exactly 143,936 at the expected attempts;
-- existing server metrics report exactly 32 dead letters and 32 previously
-  delivered expirations, no never-delivered expirations, 15 queue/priority
-  state series, a successful snapshot no older than 30 seconds, and a fully
-  drained queue set.
-
-The first-delivery-age objective remains deferred and is not part of these
-failure criteria.
+The showcase uses these normal functional thresholds and also requires k6 to
+schedule the complete offered workload without dropped iterations. It reports
+the planned lifecycle accounting and final Prometheus state for visibility; it
+does not turn those exact counts into benchmark gates.
 
 ## Result interpretation
 
