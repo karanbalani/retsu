@@ -226,4 +226,4 @@ After a visibility timeout ends, a later dequeue can claim the message directly 
 
 When the delivery limit is reached, a later dequeue moves the message to dead-letter storage. Expired active messages and old dead-letter records are removed by separate workers.
 
-See [Message lifecycle](message-lifecycle.md) for the rules and [Operations](operations.md#run-the-processes) for the cleanup processes.
+See [Message lifecycle](message-lifecycle.md) for the rules and [Workers](workers.md) for the cleanup processes.

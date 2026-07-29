@@ -7,19 +7,28 @@ repo_name = "karanbalani/retsu"
 edit_uri = "edit/main/docs/"
 docs_dir = "docs"
 site_dir = "site"
+extra_css = ["stylesheets/theme.css"]
 nav = [
-  { "Home" = "index.md" },
-  { "Get started" = "getting-started.md" },
+  { "Start" = [
+    { "Overview" = "index.md" },
+    { "Getting started" = "getting-started.md" },
+  ] },
   { "Use Retsu" = [
     { "Queue API" = "queues.md" },
     { "Message lifecycle" = "message-lifecycle.md" },
   ] },
   { "Run Retsu" = [
     { "Operations" = "operations.md" },
+    { "Configuration" = "configuration.md" },
+    { "Workers" = "workers.md" },
+    { "Deployment and releases" = "deployment.md" },
+    { "Monitoring" = "observability.md" },
   ] },
   { "Develop" = [
     { "Local development" = "local-development.md" },
+    { "Load testing" = "load-testing.md" },
     { "Architecture" = "architecture.md" },
+    { "Codebase guide" = "codebase-guide.md" },
   ] },
   { "Internals" = [
     { "Caching" = "caching.md" },
@@ -32,6 +41,7 @@ nav = [
 [project.theme]
 variant = "modern"
 language = "en"
+logo = "assets/logo.png"
 features = [
   "content.action.edit",
   "content.action.view",
@@ -55,12 +65,16 @@ toggle.name = "Switch to light mode"
 [[project.theme.palette]]
 media = "(prefers-color-scheme: light)"
 scheme = "default"
+primary = "custom"
+accent = "custom"
 toggle.icon = "lucide/sun"
 toggle.name = "Switch to dark mode"
 
 [[project.theme.palette]]
 media = "(prefers-color-scheme: dark)"
 scheme = "slate"
+primary = "custom"
+accent = "custom"
 toggle.icon = "lucide/moon"
 toggle.name = "Switch to system preference"
 

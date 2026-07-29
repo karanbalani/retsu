@@ -1,23 +1,25 @@
 # Architecture
 
-Retsu is one compiled program with several runtime roles. The API and workers are separate processes, but they share the same queue rules, storage code, configuration, and monitoring setup.
+Retsu is one compiled program with several runtime roles. The API and each worker run as separate processes but use the same configuration, queue rules, database code, cache code, and monitoring setup.
+
+This page describes the current code, not a future design.
 
 ## Running system
 
 ```mermaid
 flowchart LR
-    Client["Application"] --> API["API process"]
+    Client["Application using Retsu"] --> API["API process<br/>queue HTTP routes"]
 
-    subgraph Processes["Retsu processes"]
+    subgraph Retsu["Retsu processes"]
         API
         Expired["Expired-message cleaner"]
-        DeadLetter["Dead-letter cleaner"]
+        DeadLetter["Dead-letter-message cleaner"]
         State["State-metrics collector"]
         Migrate["Migration job"]
     end
 
-    API --> Local["In-process cache"]
-    Local --> Shared["Shared cache"]
+    API --> Local["In-process queue-name cache"]
+    Local --> Shared["Shared queue-details cache"]
     Shared --> Database[("PostgreSQL")]
     API --> Database
     Expired --> Database
@@ -25,139 +27,98 @@ flowchart LR
     State --> Database
     Migrate --> Database
 
-    Prometheus["Prometheus"] -. "reads metrics" .-> API
-    Prometheus -. "reads metrics" .-> Expired
-    Prometheus -. "reads metrics" .-> DeadLetter
-    Prometheus -. "reads metrics" .-> State
+    Prometheus["Prometheus"] -. "scrapes" .-> API
+    Prometheus -. "scrapes" .-> Expired
+    Prometheus -. "scrapes" .-> DeadLetter
+    Prometheus -. "scrapes" .-> State
+
+    API -. "exports traces" .-> Collector["Trace collector"]
+    Expired -. "exports traces" .-> Collector
+    DeadLetter -. "exports traces" .-> Collector
+    State -. "exports traces" .-> Collector
 ```
 
-PostgreSQL is the source of truth. The caches hold queue details, never messages.
+PostgreSQL is the source of truth. The shared Redis-compatible cache stores queue details, and each process can keep queue IDs and immutable names in memory. Queue messages are stored only in PostgreSQL.
 
-The API serves queue requests. The cleaners remove expired messages and old dead-letter records. The state collector refreshes queue measurements. The migration job applies database changes and exits.
+The API serves queue requests and handles retries during dequeue. The cleaners remove expired active messages and old dead-letter records. The state collector reads queue counts for Prometheus. The migration role only applies database migrations.
 
-## How the code is divided
+## One image, separate processes
 
-The code has a horizontal part and a vertical part:
+The same binary and container image can run:
 
-```mermaid
-flowchart TB
-    subgraph Horizontal["Shared runtime code — horizontal"]
-        direction LR
-        CLI["Command line"] --> Entry["Select API, worker, or migration"]
-        Config["Configuration"] --> Entry
-        Entry --> Context["Build shared dependencies"]
-        Runtime["Database, cache, HTTP, monitoring"] --> Context
-    end
+| Role | Command |
+| --- | --- |
+| API | `retsu api` |
+| Migration job | `retsu migrate` |
+| Expired-message cleaner | `retsu worker run queue expired-message-cleaner` |
+| Dead-letter-message cleaner | `retsu worker run queue dead-letter-message-cleaner` |
+| State-metrics collector | `retsu worker run queue state-metrics-collector` |
 
-    Context --> Queue
+Starting one role does not start another. This lets each process restart or scale independently while keeping one implementation of queue behavior.
 
-    subgraph Queue["Queue feature — vertical"]
-        direction TB
-        API["HTTP routes"] --> Application["Queue operations"]
-        Worker["Background workers"] --> Application
-        Application --> Domain["Queue and message rules"]
-        Application --> Contract["Storage contract"]
-        Contract --> Infrastructure["Caches and PostgreSQL"]
-    end
-```
-
-- Horizontal code starts and supports every process. It lives mainly in `src/entrypoints/`, `src/app/`, `src/database/`, `src/cache/`, `src/observability/`, and `src/worker/`.
-- Vertical code owns a complete product feature. The queue feature keeps its HTTP routes, rules, storage, and workers together under `src/modules/queue/`.
-
-The queue module is the only product module today.
-
-## Dependency injection
-
-Dependency injection here means building shared values once and passing them to the code that needs them. There is no dependency injection framework or global service container.
-
-```mermaid
-flowchart LR
-    Config["Validated settings"] --> Context["ApplicationContext"]
-    Metrics["Metrics"] --> Context
-    Context --> Pool["PostgreSQL pool"]
-    Context --> Queue["QueueModule"]
-    Pool --> Queue
-    Metrics --> Queue
-    Queue --> Local["Local cache repository"]
-    Local --> Shared["Shared cache repository"]
-    Shared --> Postgres["PostgreSQL repository"]
-    Context --> Process["API or selected worker"]
-    Process --> Queue
-```
-
-`ApplicationContext::initialize` creates the database pool and `QueueModule`. The API shares this context through Actix. A worker receives the same kind of context directly.
-
-Cloning the context shares its pools, caches, and metrics; it does not recreate every connection. Constructors show exactly what each part needs, which keeps tests and startup behavior easy to follow.
-
-## Inside the queue module
-
-```text
-src/modules/queue/
-├── api/             routes and HTTP conversion
-├── application/     queue operations and their sequence
-├── domain/          queue and message rules
-├── infrastructure/  cache and PostgreSQL implementations
-├── worker/          background jobs
-└── mod.rs           dependency wiring and the public module interface
-```
-
-HTTP code converts requests and responses. Application code controls each operation. Domain code validates queue and message rules. Infrastructure code talks to caches and PostgreSQL. Workers call the same application operations used by the API.
-
-Most queue types are visible only inside the queue module. This prevents unrelated code from depending on internal handlers, storage details, or domain types.
-
-## Follow one request
+## Request path
 
 ```mermaid
 sequenceDiagram
     participant Client
-    participant HTTP as HTTP handler
+    participant HTTP as API handler
     participant Queue as Queue module
     participant Cache as Queue caches
     participant DB as PostgreSQL
 
     Client->>HTTP: Queue request
     HTTP->>Queue: Validated command
-    Queue->>Cache: Read queue details when needed
-    Cache->>DB: Read on a cache miss
-    Queue->>DB: Run the message transaction
+    Queue->>Cache: Read queue metadata when needed
+    Cache->>DB: Read on cache miss
+    Queue->>DB: Run message transaction
     DB-->>Queue: Result
-    Queue-->>HTTP: Result or error
+    Queue-->>HTTP: Domain result or error
     HTTP-->>Client: HTTP response
 ```
 
-Handlers do not contain queue rules or SQL. A queue operation owns the sequence, and PostgreSQL completes message changes inside transactions.
+HTTP handlers translate requests and responses. They do not contain queue rules or SQL. The queue module owns the operation, and PostgreSQL completes message changes in transactions.
 
-Dequeue also handles retry and dead-letter movement. There is no separate retry worker. See [Message lifecycle](message-lifecycle.md).
+## Message ownership
 
-## How modules and workers are registered
+Dequeue directly claims a message whose visibility timeout has ended. There is no retry worker. A later dequeue also moves delivery-exhausted messages into dead-letter storage before finding another message.
 
-`src/modules/definition.rs` describes each compiled module with a name, optional HTTP routes, and its workers. `src/modules/mod.rs` holds the module list.
+The cleanup workers operate on the same queue module and database implementation as the API. See [Message lifecycle](message-lifecycle.md) for the complete flow.
 
-The API uses that list to register routes. Worker commands use the same list to show and start a named worker. This is normal compiled Rust code, not runtime plugin loading.
+## Monitoring path
 
-## Why this structure was chosen
+Every process records logs, metrics, and optional traces. The API serves monitoring endpoints on its HTTP port. Each worker starts a separate management server.
 
-| Choice | Reason |
+The state collector is different from event metrics:
+
+- enqueue, acknowledgement, expiry, and dead-letter events are recorded by the operation that performs them;
+- current ready and in-flight counts are collected from PostgreSQL;
+- only one state collector is active, while other collector processes can wait for failover.
+
+See [Monitoring](observability.md) and [Queue state summaries](queue-state-rollups.md).
+
+## Why the system is split this way
+
+- One queue module keeps HTTP, worker, and database behavior consistent.
+- Separate processes let deployments scale the API and each maintenance job independently.
+- PostgreSQL transactions keep message state and queue-state summaries consistent.
+- Cache failures can fall back to PostgreSQL without changing queue correctness.
+- A dedicated state collector avoids running the same database work in every API replica.
+- One production image reduces differences between migrations, the API, workers, local development, and integration tests.
+
+The tradeoff is that a complete deployment must run several roles and monitor each one. [Workers](workers.md) and [Deployment and releases](deployment.md) list the required commands and endpoints.
+
+## Where the code lives
+
+| Path | Purpose |
 | --- | --- |
-| One module owns a complete feature | Routes, rules, storage, and workers change together |
-| Manual dependency wiring | Dependencies stay visible without learning a framework |
-| One storage contract | Cache layers can change without changing queue operations |
-| PostgreSQL transactions | Message state and queue summaries stay consistent |
-| Separate processes | The API and each maintenance job can restart or scale independently |
-| One image | Migrations, API, workers, local runs, and tests use the same program |
+| `src/entrypoints/` | Starts the selected API, worker, or migration role |
+| `src/app/` | Builds shared dependencies |
+| `src/modules/` | Registers application features and their workers |
+| `src/modules/queue/` | Owns queue API, rules, operations, storage, and workers |
+| `src/cache/` | Implements the in-memory and Redis-compatible caches |
+| `src/database/` | Creates and checks PostgreSQL pools |
+| `src/observability/` | Provides logs, metrics, and traces |
+| `src/worker/` | Runs one selected worker and its management server |
+| `migrations/` | Contains forward-only PostgreSQL changes |
 
-The trade-off is explicit wiring and several processes to operate. That cost is kept in the application context, module entry points, and deployment setup instead of spreading through the queue code.
-
-## Where a change belongs
-
-| Change | Start here |
-| --- | --- |
-| HTTP request or response | `src/modules/queue/api/` |
-| Queue rule or value | `src/modules/queue/domain/` |
-| Queue operation | `src/modules/queue/application/` |
-| SQL or cache behavior | `src/modules/queue/infrastructure/` |
-| Background job | `src/modules/queue/worker/` |
-| Shared startup dependency | `src/app/` |
-| New process behavior | `src/entrypoints/` |
-
-Use the **Internals** tab for focused explanations of [caching](caching.md), [queue state summaries](queue-state-rollups.md), [metric limits](queue-metric-cardinality.md), and [state collector failover](queue-state-collector-leadership.md).
+Continue with the [Codebase guide](codebase-guide.md) for dependency injection, module boundaries, and change placement.

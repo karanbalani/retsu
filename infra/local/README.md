@@ -260,7 +260,7 @@ before starting a disposable k6 2.0.0 container. k6 reaches the API only through
 the Compose network, streams bounded trend statistics to Prometheus, keeps its
 console summary, and is removed when the run ends.
 
-`showcase` runs the production-shaped local workload documented in [Local development](../../docs/local-development.md#run-load-tests). It uses five queues, continuously varies enqueue demand, keeps intentional retry/expiry/DLQ outcomes separate from service errors, and leaves consumers running through a bounded drain. A separate verification scenario keeps the run alive for the cleaner wait, then checks the existing dead-letter, expiry, ready, and in-flight metrics for that run's unique queues.
+`showcase` runs the production-shaped local workload documented in [Load testing](../../docs/load-testing.md). It uses five queues, continuously varies enqueue demand, keeps intentional retry/expiry/DLQ outcomes separate from service errors, and leaves consumers running through a bounded drain. A separate verification scenario keeps the run alive for the cleaner wait, then checks the existing dead-letter, expiry, ready, and in-flight metrics for that run's unique queues.
 
 The command fails on more than 0.01 percent unexpected request errors, any
 dropped iteration, a mismatch in the exact enqueue/priority/queue/cohort,
@@ -268,7 +268,7 @@ attempt, retry, no-ack, or acknowledgement totals, or an incomplete server-side
 drain. The first-delivery-age objective is intentionally deferred and is not
 claimed by this local scenario.
 
-The scenario settings from [Local development](../../docs/local-development.md#run-load-tests) can be supplied for one command:
+The scenario settings from [Load testing](../../docs/load-testing.md) can be supplied for one command:
 
 ```bash
 ENQUEUE_RATE=25 ENQUEUE_DURATION=2m QUEUE_COUNT=4 \
