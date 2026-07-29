@@ -220,10 +220,43 @@ impl WorkerConfig {
 #[serde(default, deny_unknown_fields)]
 pub(crate) struct QueueWorkerConfig {
     #[validate(nested)]
+    pub(crate) dead_letter_message_cleaner: DeadLetterMessageCleanerConfig,
+
+    #[validate(nested)]
     pub(crate) expired_message_cleaner: ExpiredMessageCleanerConfig,
 
     #[validate(nested)]
     pub(crate) state_metrics_collector: StateMetricsCollectorConfig,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Validate)]
+#[serde(default, deny_unknown_fields)]
+pub(crate) struct DeadLetterMessageCleanerConfig {
+    #[validate(range(min = 3_600, max = 31_536_000))]
+    pub(crate) retention_seconds: u64,
+
+    #[validate(range(min = 5, max = 3_600))]
+    pub(crate) processing_interval_seconds: u64,
+
+    #[validate(range(min = 1, max = 10_000))]
+    pub(crate) batch_size: u32,
+
+    #[validate(range(min = 1, max = 5_000))]
+    pub(crate) saturated_batch_delay_milliseconds: u64,
+}
+
+impl DeadLetterMessageCleanerConfig {
+    pub(crate) fn retention(&self) -> Duration {
+        Duration::from_secs(self.retention_seconds)
+    }
+
+    pub(crate) fn processing_interval(&self) -> Duration {
+        Duration::from_secs(self.processing_interval_seconds)
+    }
+
+    pub(crate) fn saturated_batch_delay(&self) -> Duration {
+        Duration::from_millis(self.saturated_batch_delay_milliseconds)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Validate)]

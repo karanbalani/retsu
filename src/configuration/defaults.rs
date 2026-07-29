@@ -6,10 +6,11 @@ use std::{
 use super::{
     AppConfiguration,
     schema::{
-        CacheConfig, CachePolicyConfig, DatabaseConfig, DistributedCacheConfig, Environment,
-        ExpiredMessageCleanerConfig, HttpConfig, InMemoryCacheConfig, LogFormat, LoggingConfig,
-        MetricsConfig, QueueWorkerConfig, StateMetricsCollectorConfig, TelemetryConfig,
-        TraceExportConfig, WorkerConfig, WorkerManagementConfig,
+        CacheConfig, CachePolicyConfig, DatabaseConfig, DeadLetterMessageCleanerConfig,
+        DistributedCacheConfig, Environment, ExpiredMessageCleanerConfig, HttpConfig,
+        InMemoryCacheConfig, LogFormat, LoggingConfig, MetricsConfig, QueueWorkerConfig,
+        StateMetricsCollectorConfig, TelemetryConfig, TraceExportConfig, WorkerConfig,
+        WorkerManagementConfig,
     },
 };
 
@@ -196,6 +197,34 @@ impl Default for WorkerManagementConfig {
         Self {
             bind_address: worker_management_bind_address(),
             port: worker_management_port(),
+        }
+    }
+}
+
+fn dead_letter_message_cleaner_retention_seconds() -> u64 {
+    1_209_600
+}
+
+fn dead_letter_message_cleaner_processing_interval_seconds() -> u64 {
+    60
+}
+
+fn dead_letter_message_cleaner_batch_size() -> u32 {
+    500
+}
+
+fn dead_letter_message_cleaner_saturated_batch_delay_milliseconds() -> u64 {
+    50
+}
+
+impl Default for DeadLetterMessageCleanerConfig {
+    fn default() -> Self {
+        Self {
+            retention_seconds: dead_letter_message_cleaner_retention_seconds(),
+            processing_interval_seconds: dead_letter_message_cleaner_processing_interval_seconds(),
+            batch_size: dead_letter_message_cleaner_batch_size(),
+            saturated_batch_delay_milliseconds:
+                dead_letter_message_cleaner_saturated_batch_delay_milliseconds(),
         }
     }
 }

@@ -2,7 +2,10 @@ use std::sync::{Arc, OnceLock};
 
 use opentelemetry::metrics::Meter;
 
-use super::{ExpiredMessageCleanerMetrics, QueueCommandMetrics, QueueStateMetrics};
+use super::{
+    DeadLetterMessageCleanerMetrics, ExpiredMessageCleanerMetrics, QueueCommandMetrics,
+    QueueStateMetrics,
+};
 
 #[derive(Clone)]
 pub(crate) struct QueueInstrumentation {
@@ -12,6 +15,7 @@ pub(crate) struct QueueInstrumentation {
 struct QueueInstrumentationInner {
     meter: Meter,
     commands: OnceLock<QueueCommandMetrics>,
+    dead_letter_message_cleaner: OnceLock<DeadLetterMessageCleanerMetrics>,
     expired_message_cleaner: OnceLock<ExpiredMessageCleanerMetrics>,
     state: OnceLock<QueueStateMetrics>,
 }
@@ -22,6 +26,7 @@ impl QueueInstrumentation {
             inner: Arc::new(QueueInstrumentationInner {
                 meter: meter.clone(),
                 commands: OnceLock::new(),
+                dead_letter_message_cleaner: OnceLock::new(),
                 expired_message_cleaner: OnceLock::new(),
                 state: OnceLock::new(),
             }),
@@ -32,6 +37,13 @@ impl QueueInstrumentation {
         self.inner
             .commands
             .get_or_init(|| QueueCommandMetrics::new(&self.inner.meter))
+            .clone()
+    }
+
+    pub(crate) fn dead_letter_message_cleaner(&self) -> DeadLetterMessageCleanerMetrics {
+        self.inner
+            .dead_letter_message_cleaner
+            .get_or_init(|| DeadLetterMessageCleanerMetrics::new(&self.inner.meter))
             .clone()
     }
 

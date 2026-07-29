@@ -1,5 +1,6 @@
 mod cache;
 mod database;
+mod dead_letter_message_cleaner;
 mod expired_message_cleaner;
 mod http;
 mod queue;
@@ -16,6 +17,7 @@ use prometheus::{Encoder, Registry, TextEncoder};
 
 pub(crate) use cache::CacheMetrics;
 pub(crate) use database::DatabaseMetrics;
+pub(crate) use dead_letter_message_cleaner::DeadLetterMessageCleanerMetrics;
 pub(crate) use expired_message_cleaner::ExpiredMessageCleanerMetrics;
 pub(crate) use http::HttpMetrics;
 pub(crate) use queue::QueueInstrumentation;
@@ -84,7 +86,9 @@ pub(super) fn initialize(
 
                 "queue.messages.expired" => 2,
 
-                "queue.messages.acknowledged" | "queue.messages.dead_lettered" => 1,
+                "queue.messages.acknowledged"
+                | "queue.messages.dead_lettered"
+                | "queue.dead_letter.messages.purged" => 1,
 
                 _ => return None,
             };

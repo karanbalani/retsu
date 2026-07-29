@@ -103,6 +103,31 @@ services:
     restart: unless-stopped
     stop_grace_period: 35s
 
+  dead-letter-message-cleaner:
+    <<: *retsu-runtime
+    labels:
+      retsu.observability.component: dead-letter-message-cleaner
+    command:
+      - worker
+      - run
+      - queue
+      - dead-letter-message-cleaner
+    environment:
+      <<: *retsu-environment
+      RETSU_DATABASE__MAX_CONNECTIONS: ${RETSU_LOCAL_WORKER_DATABASE_POOL_SIZE:-5}
+      RETSU_WORKER__MANAGEMENT__BIND_ADDRESS: 0.0.0.0
+      RETSU_WORKER__MANAGEMENT__PORT: "24247"
+    ports:
+      - "127.0.0.1:${RETSU_LOCAL_DLQ_CLEANER_PORT:-24253}:24247"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    cpus: "0.25"
+    mem_limit: 128m
+    pids_limit: 64
+    restart: unless-stopped
+    stop_grace_period: 35s
+
   state-metrics-collector:
     <<: *retsu-runtime
     labels:

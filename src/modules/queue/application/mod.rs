@@ -3,6 +3,7 @@ mod create_queue;
 mod dequeue_message;
 mod enqueue_message;
 mod process_expired_messages;
+mod purge_dead_letter_messages;
 mod repository;
 mod update_queue;
 
@@ -11,8 +12,9 @@ pub(in crate::modules::queue) use create_queue::{
 };
 
 pub(in crate::modules::queue) use repository::{
-    AcknowledgeMessageOutcome, CreateQueueOutcome, DequeueMessageOutcome,
-    ExpiredMessagesCleanupSummary, QueueExpiredMessagesCleanupSummary, QueueRepository,
+    AcknowledgeMessageOutcome, CreateQueueOutcome, DeadLetterMessagesPurgeSummary,
+    DequeueMessageOutcome, ExpiredMessagesCleanupSummary, QueueDeadLetterMessagesPurgeSummary,
+    QueueExpiredMessagesCleanupSummary, QueueRepository,
 };
 
 pub(in crate::modules::queue) use dequeue_message::{
@@ -29,6 +31,10 @@ pub(in crate::modules::queue) use acknowledge_message::{
 
 pub(in crate::modules::queue) use process_expired_messages::{
     ProcessExpiredMessagesError, execute as execute_process_expired_messages,
+};
+
+pub(in crate::modules::queue) use purge_dead_letter_messages::{
+    PurgeDeadLetterMessagesError, execute as execute_purge_dead_letter_messages,
 };
 
 pub(in crate::modules::queue) use update_queue::{

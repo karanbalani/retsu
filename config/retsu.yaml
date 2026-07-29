@@ -41,6 +41,11 @@ worker:
     bind_address: 127.0.0.1
     port: 24247
   queue:
+    dead_letter_message_cleaner:
+      retention_seconds: 1209600
+      processing_interval_seconds: 60
+      batch_size: 500
+      saturated_batch_delay_milliseconds: 50
     expired_message_cleaner:
       processing_interval_seconds: 60
       batch_size: 500
