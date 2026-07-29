@@ -91,8 +91,6 @@ zensical build --clean --strict
 ```
 
 The documentation workflow runs the same strict build for pull requests that change the site.
-It reads the project version from `Cargo.toml`, so release-version changes
-automatically rebuild the versioned examples.
 
 ## Database migrations
 
