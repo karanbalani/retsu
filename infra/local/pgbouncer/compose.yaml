@@ -2,7 +2,7 @@ x-logging: &default-logging
   driver: json-file
   options:
     max-size: "10m"
-    max-file: "3"
+    max-file: "2"
 
 services:
   pgbouncer:
@@ -18,12 +18,12 @@ services:
       LISTEN_PORT: "6432"
       AUTH_TYPE: scram-sha-256
       POOL_MODE: transaction
-      MAX_CLIENT_CONN: "64"
-      DEFAULT_POOL_SIZE: "16"
-      RESERVE_POOL_SIZE: "4"
+      MAX_CLIENT_CONN: "128"
+      DEFAULT_POOL_SIZE: "40"
+      RESERVE_POOL_SIZE: "10"
       RESERVE_POOL_TIMEOUT: "1"
-      MAX_DB_CONNECTIONS: "20"
-      MAX_USER_CONNECTIONS: "20"
+      MAX_DB_CONNECTIONS: "50"
+      MAX_USER_CONNECTIONS: "50"
       MAX_PREPARED_STATEMENTS: "128"
       SERVER_ROUND_ROBIN: "1"
       SERVER_CONNECT_TIMEOUT: "5"
@@ -62,8 +62,8 @@ services:
     tmpfs:
       - /etc/pgbouncer:rw,noexec,nosuid,size=1m,mode=0700,uid=70,gid=70
       - /var/run/pgbouncer:rw,noexec,nosuid,size=1m,mode=0700,uid=70,gid=70
-    cpus: "0.25"
-    mem_limit: 64m
+    cpus: "1"
+    mem_limit: 128m
     pids_limit: 64
     restart: unless-stopped
     stop_grace_period: 10s

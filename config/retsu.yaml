@@ -5,7 +5,7 @@ http:
   port: 2424
 
 logging:
-  filter: info
+  filter: warn
   format: pretty
 
 telemetry:
@@ -13,7 +13,7 @@ telemetry:
     max_queues: 10000
   traces:
     enabled: false
-    filter: info
+    filter: warn
     endpoint: http://127.0.0.1:24241
     timeout_seconds: 5
 

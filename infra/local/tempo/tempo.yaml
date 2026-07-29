@@ -24,7 +24,7 @@ storage:
 overrides:
   defaults:
     compaction:
-      block_retention: 24h
+      block_retention: 2h
 
 usage_report:
   reporting_enabled: false

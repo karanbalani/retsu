@@ -2,7 +2,7 @@ x-logging: &default-logging
   driver: json-file
   options:
     max-size: "10m"
-    max-file: "3"
+    max-file: "2"
 
 services:
   cadvisor:
@@ -35,4 +35,5 @@ services:
     cpus: "0.35"
     mem_limit: 192m
     pids_limit: 128
+    restart: unless-stopped
     logging: *default-logging

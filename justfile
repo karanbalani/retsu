@@ -1,7 +1,7 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
 sqlx-cli-version := "0.9.0"
-observability-services := "prometheus pg-exporter cadvisor grafana"
+observability-services := "prometheus pg-exporter pgbouncer-exporter cadvisor grafana"
 tracing-services := "otel-collector tempo"
 compose := "docker compose --file infra/local/compose.yaml"
 
@@ -21,20 +21,26 @@ help:
 justfile-check:
     just --fmt --check
 
-# Verify the local development toolchain.
+# Verify the container-native local toolchain.
 doctor:
-    rustc --version
-    cargo --version
     just --version
+    bash --version
+    curl --version
     docker --version
     docker compose version
+    @docker info >/dev/null
+    @echo "Container-native local environment is ready."
+
+# Verify the host Rust development toolchain.
+doctor-host: doctor
+    rustc --version
+    cargo --version
     @command -v sqlx >/dev/null || { \
         echo "SQLx CLI is missing. Run: just sqlx-install"; \
         exit 1; \
     }
     sqlx --version
-    @docker info >/dev/null
-    @echo "Development environment is ready."
+    @echo "Host Rust development environment is ready."
 
 # Create .env without overwriting existing local configuration.
 env-init:
@@ -93,9 +99,9 @@ local-ready:
 local-up: local-build
     ./scripts/local/up.sh
 
-# Start the optional local tracing services after the local stack.
+# Compatibility alias; tracing is enabled by the complete local stack.
 local-up-tracing: local-up
-    ./scripts/local/up-tracing.sh
+    @echo "Tracing is already enabled by just local-up."
 
 # Show all local services, including stopped services.
 local-status:
@@ -108,6 +114,14 @@ local-stop:
 # Run one disposable local load scenario.
 local-load scenario="smoke":
     ./scripts/local/load.sh "{{ scenario }}"
+
+# Run the local product showcase for 5-20 minutes total.
+local-showcase duration="5":
+    ./scripts/local/showcase.sh "{{ duration }}"
+
+# Validate local infrastructure without starting the stack.
+local-validate:
+    ./scripts/local/validate.sh
 
 # Run all local quality gates.
 quality: justfile-check fmt-check lint test compose-check
@@ -161,12 +175,10 @@ _stack-wipe:
 [confirm("Delete the complete local stack and all persisted data?")]
 stack-wipe: _stack-wipe
 
-# Recreate the complete stack from scratch and apply migrations.
+# Rebuild and recreate the complete container-native stack from scratch.
 [confirm("Delete and recreate PostgreSQL, Prometheus, Tempo, and Grafana from scratch?")]
-stack-reset config="config/retsu.yaml": _stack-wipe
-    {{ compose }} up -d --wait postgres dragonfly
-    {{ compose }} --profile observability --profile tracing up -d --wait {{ observability-services }} {{ tracing-services }}
-    cargo run --locked -- --config "{{ config }}" migrate
+stack-reset: _stack-wipe
+    just local-up
 
 # Apply application-owned migrations.
 migrate config="config/retsu.yaml":

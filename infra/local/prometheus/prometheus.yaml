@@ -108,8 +108,8 @@ scrape_configs:
           deployment_environment: local
     metric_relabel_configs:
       - source_labels:
-          - container_label_com_docker_compose_project
-        regex: retsu
+          - container_label_retsu_observability_component
+        regex: .+
         action: keep
       - source_labels:
           - __name__

@@ -2,7 +2,7 @@ x-logging: &default-logging
   driver: json-file
   options:
     max-size: "10m"
-    max-file: "3"
+    max-file: "2"
 
 services:
   prometheus:
@@ -14,8 +14,8 @@ services:
     command:
       - --config.file=/etc/prometheus/prometheus.yaml
       - --storage.tsdb.path=/prometheus
-      - --storage.tsdb.retention.time=${RETSU_LOCAL_PROMETHEUS_RETENTION_TIME:-72h}
-      - --storage.tsdb.retention.size=${RETSU_LOCAL_PROMETHEUS_RETENTION_SIZE:-1GB}
+      - --storage.tsdb.retention.time=24h
+      - --storage.tsdb.retention.size=512MB
       - --web.enable-lifecycle
       - --web.enable-remote-write-receiver
       - --enable-feature=exemplar-storage

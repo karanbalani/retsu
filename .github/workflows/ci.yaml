@@ -53,20 +53,16 @@ jobs:
         run: cargo test --locked --lib --all-features
 
   compose:
-    name: Validate Docker Compose
+    name: Validate local infrastructure
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
 
-      - name: Validate Compose configuration
-        run: >-
-          docker compose
-          --env-file .env.example
-          --file infra/local/compose.yaml
-          --profile observability
-          --profile tracing
-          --profile load
-          config --quiet
+      - name: Install Just
+        uses: extractions/setup-just@v3
+
+      - name: Validate local infrastructure
+        run: ./scripts/local/validate.sh

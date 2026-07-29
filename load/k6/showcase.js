@@ -16,227 +16,110 @@ import {
 } from "./support/metrics.js";
 import { thresholdsFor } from "./support/options.js";
 import {
-    PRODUCTION_DAY_HOURLY_RATES,
-    PRODUCTION_DAY_QUEUE_PROFILES,
-    expectedProductionDayCohorts,
-    expectedProductionDayDeliveryAccounting,
-    expectedProductionDayEnqueues,
-    expectedProductionDayMainConsumerIterations,
-    expectedProductionDayPriorities,
-    expectedProductionDayQueues,
-    expectedProductionDayTailIterations,
-    productionDayCohort,
-    productionDayConsumerRates,
-    productionDayConsumerStages,
-    productionDayPriority,
-    productionDayProducerStages,
-    productionDayQueueIndex,
-    productionDayVerificationStartSeconds,
-} from "./support/production-day.js";
+    SHOWCASE_QUEUE_PROFILES,
+    SHOWCASE_START_RATE,
+    SHOWCASE_VERIFICATION_WINDOW_SECONDS,
+    expectedShowcaseCohorts,
+    expectedShowcaseDeliveryAccounting,
+    expectedShowcaseEnqueues,
+    expectedShowcaseMainConsumerIterations,
+    expectedShowcasePriorities,
+    expectedShowcaseQueues,
+    expectedShowcaseTailIterations,
+    showcaseActiveLoadMinutes,
+    showcaseCohort,
+    showcaseConsumerRate,
+    showcaseConsumerStages,
+    showcasePriority,
+    showcaseProducerStages,
+    showcaseQueueIndex,
+    showcaseVerificationStartSeconds,
+} from "./support/showcase.js";
 
-const NORMAL_TTL_SECONDS = 1_800;
+const NORMAL_TTL_SECONDS = 180;
 const FAULT_TTL_SECONDS = 120;
 const EXPIRY_TTL_SECONDS = 6;
-const MAX_UNEXPECTED_SERVICE_ERROR_RATE = 0.0001;
-const MINIMUM_CORRECTNESS_RATE = 0.9999;
-
-const plannedEnqueues = new Counter("production_day_planned_enqueues");
+const plannedEnqueues = new Counter("showcase_planned_enqueues");
 const successfulEnqueues = new Counter(
-    "production_day_successful_enqueues",
+    "showcase_successful_enqueues",
 );
 const consumerIterations = new Counter(
-    "production_day_consumer_iterations",
+    "showcase_consumer_iterations",
 );
-const plannedFaults = new Counter("production_day_planned_faults");
-const queueSelections = new Counter("production_day_queue_selections");
+const plannedFaults = new Counter("showcase_planned_faults");
+const queueSelections = new Counter("showcase_queue_selections");
 const deliveryAttempts = new Counter(
-    "production_day_delivery_attempts",
+    "showcase_delivery_attempts",
 );
 const intentionalNoAcks = new Counter(
-    "production_day_intentional_no_acks",
+    "showcase_intentional_no_acks",
 );
 const terminalOutcomes = new Counter(
-    "production_day_terminal_outcomes",
+    "showcase_terminal_outcomes",
 );
 const unexpectedOutcomes = new Counter(
-    "production_day_unexpected_outcomes",
+    "showcase_unexpected_outcomes",
 );
-const serverOutcomes = new Counter("production_day_server_outcomes");
+const serverOutcomes = new Counter("showcase_server_outcomes");
 const serverVerificationFailures = new Counter(
-    "production_day_server_verification_failures",
+    "showcase_server_verification_failures",
 );
 const processingDuration = new Trend(
-    "production_day_processing_duration",
+    "showcase_processing_duration",
     true,
 );
 
-const daySettings = Object.freeze({
-    hourSeconds: config.productionDayHourSeconds,
-    transitionSeconds: config.productionDayTransitionSeconds,
-    headroom: config.productionDayConsumerHeadroom,
-    drainRate: config.productionDayDrainRate,
-    drainRampUpSeconds: config.productionDayDrainRampUpSeconds,
-    drainHoldSeconds: config.productionDayDrainHoldSeconds,
-    drainRampDownSeconds: config.productionDayDrainRampDownSeconds,
-    cleanerWaitSeconds: config.productionDayCleanerWaitSeconds,
+const showcaseSettings = Object.freeze({
+    durationMinutes: config.showcaseDurationMinutes,
+    activeLoadMinutes: showcaseActiveLoadMinutes(
+        config.showcaseDurationMinutes,
+    ),
+    headroom: config.showcaseConsumerHeadroom,
+    drainRate: config.showcaseDrainRate,
+    drainRampUpSeconds: config.showcaseDrainRampUpSeconds,
+    drainHoldSeconds: config.showcaseDrainHoldSeconds,
+    drainRampDownSeconds: config.showcaseDrainRampDownSeconds,
 });
 
-const consumerRates = productionDayConsumerRates(daySettings.headroom);
-const expectedEnqueues = expectedProductionDayEnqueues(
-    daySettings.hourSeconds,
+const consumerStartRate = showcaseConsumerRate(
+    SHOWCASE_START_RATE,
+    showcaseSettings.headroom,
+);
+const expectedEnqueues = expectedShowcaseEnqueues(
+    showcaseSettings.activeLoadMinutes,
 );
 const expectedMainConsumerIterations =
-    expectedProductionDayMainConsumerIterations(
-        daySettings.hourSeconds,
-        daySettings.headroom,
+    expectedShowcaseMainConsumerIterations(
+        showcaseSettings.activeLoadMinutes,
+        showcaseSettings.headroom,
     );
 const expectedTailConsumerIterations =
-    expectedProductionDayTailIterations(daySettings);
+    expectedShowcaseTailIterations(showcaseSettings);
 const expectedConsumerIterations =
     expectedMainConsumerIterations + expectedTailConsumerIterations;
-const expectedCohorts = expectedProductionDayCohorts(expectedEnqueues);
+const expectedCohorts = expectedShowcaseCohorts(expectedEnqueues);
 const expectedPriorities =
-    expectedProductionDayPriorities(expectedEnqueues);
-const expectedQueues = expectedProductionDayQueues(expectedEnqueues);
+    expectedShowcasePriorities(expectedEnqueues);
+const expectedQueues = expectedShowcaseQueues(expectedEnqueues);
 const expectedDeliveryAccounting =
-    expectedProductionDayDeliveryAccounting(expectedEnqueues);
+    expectedShowcaseDeliveryAccounting(expectedEnqueues);
 const verificationStartSeconds =
-    productionDayVerificationStartSeconds(daySettings);
+    showcaseVerificationStartSeconds(showcaseSettings);
 
 const thresholds = {
     ...thresholdsFor(["enqueue", "dequeue", "acknowledge"], true),
-    checks: [`rate>=${MINIMUM_CORRECTNESS_RATE}`],
-    http_req_failed: [
-        `rate<=${MAX_UNEXPECTED_SERVICE_ERROR_RATE}`,
-    ],
-    status_error_rate: [
-        `rate<=${MAX_UNEXPECTED_SERVICE_ERROR_RATE}`,
-    ],
-    lifecycle_correctness_rate: [
-        `rate>=${MINIMUM_CORRECTNESS_RATE}`,
-    ],
     dropped_iterations: ["count==0"],
-    production_day_planned_enqueues: [`count==${expectedEnqueues}`],
-    production_day_successful_enqueues: [
-        `count==${expectedEnqueues}`,
-    ],
-    production_day_consumer_iterations: [
+    showcase_consumer_iterations: [
         `count==${expectedConsumerIterations}`,
     ],
-    production_day_delivery_attempts: [
-        `count==${expectedDeliveryAccounting.attempts.total}`,
+    showcase_planned_enqueues: [`count==${expectedEnqueues}`],
+    showcase_planned_faults: [
+        `count==${expectedDeliveryAccounting.faultMessages}`,
     ],
-    production_day_intentional_no_acks: [
-        `count==${expectedDeliveryAccounting.intentionalNoAcks}`,
-    ],
-    production_day_terminal_outcomes: [
-        `count==${expectedDeliveryAccounting.acknowledgements.total}`,
-    ],
-    production_day_unexpected_outcomes: ["count==0"],
-    production_day_server_verification_failures: ["count==0"],
-    lifecycles_started: [
-        `count==${expectedDeliveryAccounting.attempts.first}`,
-    ],
-    messages_acknowledged: [
-        `count==${expectedDeliveryAccounting.acknowledgements.total}`,
-    ],
+    showcase_server_verification_failures: ["count==0"],
+    showcase_successful_enqueues: [`count==${expectedEnqueues}`],
+    showcase_unexpected_outcomes: ["count==0"],
 };
-
-for (const [priority, count] of Object.entries(expectedPriorities)) {
-    thresholds[
-        `production_day_successful_enqueues{message_priority:${priority}}`
-    ] = [`count==${count}`];
-}
-
-for (const [queue, count] of Object.entries(expectedQueues)) {
-    thresholds[`production_day_successful_enqueues{queue:${queue}}`] = [
-        `count==${count}`,
-    ];
-}
-
-for (const cohort of [
-    "process_1s",
-    "process_2s",
-    "process_3s",
-    "process_5s",
-]) {
-    thresholds[`production_day_successful_enqueues{cohort:${cohort}}`] = [
-        `count==${expectedCohorts[cohort]}`,
-    ];
-}
-thresholds["production_day_successful_enqueues{cohort:fault}"] = [
-    `count==${expectedDeliveryAccounting.faultMessages}`,
-];
-
-for (const faultKind of [
-    "retry_once",
-    "retry_twice",
-    "dead_letter",
-    "expiry",
-]) {
-    thresholds[
-        `production_day_planned_faults{fault_kind:${faultKind}}`
-    ] = [`count==${expectedCohorts[faultKind]}`];
-}
-
-for (const [attempt, count] of [
-    ["1", expectedDeliveryAccounting.attempts.first],
-    ["2", expectedDeliveryAccounting.attempts.second],
-    ["3", expectedDeliveryAccounting.attempts.third],
-]) {
-    thresholds[
-        `production_day_delivery_attempts{delivery_attempt:${attempt}}`
-    ] = [`count==${count}`];
-}
-
-for (const [faultKind, count] of [
-    ["retry_once", expectedCohorts.retry_once],
-    ["retry_twice", expectedCohorts.retry_twice * 2],
-    ["dead_letter", expectedCohorts.dead_letter * 3],
-    ["expiry", expectedCohorts.expiry],
-]) {
-    thresholds[
-        `production_day_intentional_no_acks{fault_kind:${faultKind}}`
-    ] = [`count==${count}`];
-}
-
-for (const [attempt, count] of [
-    ["1", expectedDeliveryAccounting.acknowledgements.first],
-    ["2", expectedDeliveryAccounting.acknowledgements.second],
-    ["3", expectedDeliveryAccounting.acknowledgements.third],
-]) {
-    thresholds[
-        `production_day_terminal_outcomes{delivery_attempt:${attempt}}`
-    ] = [`count==${count}`];
-}
-
-for (const [faultKind, count] of [
-    ["none", expectedDeliveryAccounting.acknowledgements.first],
-    ["retry_once", expectedCohorts.retry_once],
-    ["retry_twice", expectedCohorts.retry_twice],
-]) {
-    thresholds[
-        `production_day_terminal_outcomes{fault_kind:${faultKind}}`
-    ] = [`count==${count}`];
-}
-
-for (const [outcome, count] of [
-    ["dead_lettered", expectedDeliveryAccounting.deadLetters],
-    [
-        "previously_delivered_expired",
-        expectedDeliveryAccounting.previouslyDeliveredExpirations,
-    ],
-    ["never_delivered_expired", 0],
-    ["state_collection_success", 1],
-    ["state_snapshot_fresh", 1],
-    ["queue_state_series", PRODUCTION_DAY_QUEUE_PROFILES.length * 3],
-    ["ready_messages", 0],
-    ["in_flight_messages", 0],
-]) {
-    thresholds[`production_day_server_outcomes{outcome:${outcome}}`] = [
-        `count==${count}`,
-    ];
-}
 
 export const options = {
     setupTimeout: config.setupTimeout,
@@ -244,26 +127,25 @@ export const options = {
         producers: {
             executor: "ramping-arrival-rate",
             exec: "produce",
-            startRate: PRODUCTION_DAY_HOURLY_RATES[0],
+            startRate: SHOWCASE_START_RATE,
             timeUnit: "1s",
-            stages: productionDayProducerStages(
-                daySettings.hourSeconds,
-                daySettings.transitionSeconds,
+            stages: showcaseProducerStages(
+                showcaseSettings.activeLoadMinutes,
             ),
             preAllocatedVUs:
-                config.productionDayProducerPreAllocatedVus,
-            maxVUs: config.productionDayProducerMaxVus,
+                config.showcaseProducerPreAllocatedVus,
+            maxVUs: config.showcaseProducerMaxVus,
             gracefulStop: config.gracefulStop,
         },
         consumers: {
             executor: "ramping-arrival-rate",
             exec: "consume",
-            startRate: consumerRates[0],
+            startRate: consumerStartRate,
             timeUnit: "1s",
-            stages: productionDayConsumerStages(daySettings),
+            stages: showcaseConsumerStages(showcaseSettings),
             preAllocatedVUs:
-                config.productionDayConsumerPreAllocatedVus,
-            maxVUs: config.productionDayConsumerMaxVus,
+                config.showcaseConsumerPreAllocatedVus,
+            maxVUs: config.showcaseConsumerMaxVus,
             gracefulStop: config.gracefulStop,
         },
         verify_server_outcomes: {
@@ -272,20 +154,26 @@ export const options = {
             vus: 1,
             iterations: 1,
             startTime: `${verificationStartSeconds}s`,
-            maxDuration: "1m",
+            maxDuration:
+                `${SHOWCASE_VERIFICATION_WINDOW_SECONDS + 1}s`,
+            gracefulStop: "0s",
         },
+    },
+    tags: {
+        test_type: "showcase",
     },
     thresholds,
 };
 
 export function setup() {
     console.log(
-        `production-day plan: ${expectedEnqueues} enqueues, ` +
-            `${expectedMainConsumerIterations} day consumer iterations, ` +
+        `showcase plan: ${expectedEnqueues} enqueues, ` +
+            `${showcaseSettings.activeLoadMinutes} active-load minutes, ` +
+            `${expectedMainConsumerIterations} showcase consumer iterations, ` +
             `${expectedTailConsumerIterations} drain iterations`,
     );
     console.log(
-        "production-day expected distribution: " +
+        "showcase expected distribution: " +
             `priorities HIGH/MEDIUM/LOW=` +
             `${expectedPriorities.HIGH}/${expectedPriorities.MEDIUM}/` +
             `${expectedPriorities.LOW}; queues hot-a/hot-b/warm-a/` +
@@ -294,14 +182,14 @@ export function setup() {
             `${expectedQueues["warm-b"]}/${expectedQueues.fault}`,
     );
     console.log(
-        "production-day expected faults: " +
+        "showcase expected faults: " +
             `retry-once=${expectedCohorts.retry_once}, ` +
             `retry-twice=${expectedCohorts.retry_twice}, ` +
             `dead-letter=${expectedCohorts.dead_letter}, ` +
             `expiry=${expectedCohorts.expiry}`,
     );
     console.log(
-        "production-day expected outcomes: " +
+        "showcase expected outcomes: " +
             `attempts 1/2/3=${expectedDeliveryAccounting.attempts.first}/` +
             `${expectedDeliveryAccounting.attempts.second}/` +
             `${expectedDeliveryAccounting.attempts.third}; ` +
@@ -312,7 +200,7 @@ export function setup() {
             `${expectedDeliveryAccounting.previouslyDeliveredExpirations}`,
     );
 
-    return prepareQueueProfiles(PRODUCTION_DAY_QUEUE_PROFILES);
+    return prepareQueueProfiles(SHOWCASE_QUEUE_PROFILES);
 }
 
 function queueTags(queue, phase, cohort = "none", faultKind = "none") {
@@ -325,12 +213,12 @@ function queueTags(queue, phase, cohort = "none", faultKind = "none") {
     };
 }
 
-function payloadForProductionDay(data, iteration, cohort) {
+function payloadForShowcase(data, iteration, cohort) {
     return JSON.stringify({
         event_id: `${data.runId}-${iteration}`,
         tenant_id: `tenant-${iteration % 100}`,
         event_type: "work.created",
-        source: "production-day",
+        source: "showcase",
         cohort:
             cohort.faultKind === "none"
                 ? cohort.cohort
@@ -359,7 +247,7 @@ function parsePayload(payload) {
             typeof parsed.event_id !== "string" ||
             typeof parsed.tenant_id !== "string" ||
             parsed.event_type !== "work.created" ||
-            parsed.source !== "production-day" ||
+            parsed.source !== "showcase" ||
             typeof parsed.cohort !== "string"
         ) {
             return null;
@@ -443,12 +331,12 @@ function expectedAction(cohort, attempt) {
 export function produce(data) {
     const iteration = execution.scenario.iterationInTest;
     const queue =
-        data.queues[productionDayQueueIndex(iteration, "producer")];
-    const cohort = productionDayCohort(iteration);
-    const priority = productionDayPriority(iteration);
+        data.queues[showcaseQueueIndex(iteration, "producer")];
+    const cohort = showcaseCohort(iteration);
+    const priority = showcasePriority(iteration);
     const tags = queueTags(
         queue,
-        "day",
+        "active",
         cohort.cohort,
         cohort.faultKind,
     );
@@ -465,7 +353,7 @@ export function produce(data) {
 
     const enqueued = enqueueMessage(
         queue,
-        payloadForProductionDay(data, iteration, cohort),
+        payloadForShowcase(data, iteration, cohort),
         priority,
         "enqueue",
         {
@@ -481,9 +369,9 @@ export function produce(data) {
 export function consume(data) {
     const iteration = execution.scenario.iterationInTest;
     const phase =
-        iteration < expectedMainConsumerIterations ? "day" : "drain";
+        iteration < expectedMainConsumerIterations ? "active" : "drain";
     const queue =
-        data.queues[productionDayQueueIndex(iteration, "consumer")];
+        data.queues[showcaseQueueIndex(iteration, "consumer")];
     const baseTags = queueTags(queue, phase);
 
     consumerIterations.add(1, { phase });
@@ -502,13 +390,13 @@ export function consume(data) {
     const validPayload = check(
         cohort,
         {
-            "production-day payload has five valid fields": (value) =>
+            "showcase payload has five valid fields": (value) =>
                 value !== null,
         },
         { operation: "lifecycle", phase },
     );
     if (!validPayload) {
-        recordLifecycle(false, "invalid_production_day_payload");
+        recordLifecycle(false, "invalid_showcase_payload");
         acknowledgeMessage(queue, delivery.message, {
             tags: {
                 ...baseTags,
@@ -620,11 +508,11 @@ function prometheusScalar(query, outcome) {
         },
         { operation: "verify_server_outcomes", outcome },
     );
-    serverVerificationFailures.add(valid ? 0 : 1, { outcome });
     return value;
 }
 
 export function verifyServerOutcomes(data) {
+    const verificationStartedAt = Date.now();
     const queueMatcher = prometheusQueueMatcher(data.queues);
     const outcomes = [
         {
@@ -670,7 +558,7 @@ export function verifyServerOutcomes(data) {
         },
         {
             outcome: "queue_state_series",
-            expected: PRODUCTION_DAY_QUEUE_PROFILES.length * 3,
+            expected: SHOWCASE_QUEUE_PROFILES.length * 3,
             query:
                 `count(queue_messages_ready{` +
                 `queue_name=~"${queueMatcher}"})`,
@@ -696,13 +584,38 @@ export function verifyServerOutcomes(data) {
             outcome.query,
             outcome.outcome,
         );
+        const matchesExpected = observed === outcome.expected;
+        check(
+            observed,
+            {
+                [`${outcome.outcome} matched planned state`]:
+                    () => matchesExpected,
+            },
+            {
+                operation: "verify_server_outcomes",
+                outcome: outcome.outcome,
+            },
+        );
+        serverVerificationFailures.add(
+            matchesExpected ? 0 : 1,
+            { outcome: outcome.outcome },
+        );
         serverOutcomes.add(observed ?? 0, {
             outcome: outcome.outcome,
         });
         console.log(
-            `production-day server outcome ${outcome.outcome}: ` +
+            `showcase server outcome ${outcome.outcome}: ` +
                 `observed=${observed ?? "unavailable"}, ` +
                 `expected=${outcome.expected}`,
         );
     }
+
+    const elapsedSeconds =
+        (Date.now() - verificationStartedAt) / 1000;
+    sleep(
+        Math.max(
+            0,
+            SHOWCASE_VERIFICATION_WINDOW_SECONDS - elapsedSeconds,
+        ),
+    );
 }

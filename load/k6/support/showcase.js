@@ -1,17 +1,27 @@
-export const PRODUCTION_DAY_HOURLY_RATES = Object.freeze([
-    50, 50, 50, 50, 50, 50, 50, 150, 250, 100, 90, 100,
-    150, 250, 120, 100, 90, 50, 50, 50, 50, 150, 250, 50,
+export const SHOWCASE_START_RATE = 50;
+export const SHOWCASE_TAIL_SECONDS = 120;
+export const SHOWCASE_VERIFICATION_WINDOW_SECONDS = 15;
+
+export const SHOWCASE_RATE_PATTERN = Object.freeze([
+    Object.freeze({ durationSeconds: 6, target: 90 }),
+    Object.freeze({ durationSeconds: 8, target: 140 }),
+    Object.freeze({ durationSeconds: 10, target: 70 }),
+    Object.freeze({ durationSeconds: 6, target: 150 }),
+    Object.freeze({ durationSeconds: 8, target: 100 }),
+    Object.freeze({ durationSeconds: 10, target: 50 }),
+    Object.freeze({ durationSeconds: 6, target: 120 }),
+    Object.freeze({ durationSeconds: 6, target: 50 }),
 ]);
 
-export const PRODUCTION_DAY_QUEUE_PROFILES = Object.freeze([
+export const SHOWCASE_QUEUE_PROFILES = Object.freeze([
     Object.freeze({
         profile: "hot-a",
         queueClass: "hot",
         weight: 35,
         settings: Object.freeze({
-            visibilityTimeoutSeconds: 8,
+            visibilityTimeoutSeconds: 10,
             maxDeliveryAttempts: 3,
-            defaultMessageTtlSeconds: 1_800,
+            defaultMessageTtlSeconds: 180,
         }),
     }),
     Object.freeze({
@@ -19,9 +29,9 @@ export const PRODUCTION_DAY_QUEUE_PROFILES = Object.freeze([
         queueClass: "hot",
         weight: 35,
         settings: Object.freeze({
-            visibilityTimeoutSeconds: 8,
+            visibilityTimeoutSeconds: 10,
             maxDeliveryAttempts: 3,
-            defaultMessageTtlSeconds: 1_800,
+            defaultMessageTtlSeconds: 180,
         }),
     }),
     Object.freeze({
@@ -29,9 +39,9 @@ export const PRODUCTION_DAY_QUEUE_PROFILES = Object.freeze([
         queueClass: "warm",
         weight: 10,
         settings: Object.freeze({
-            visibilityTimeoutSeconds: 8,
+            visibilityTimeoutSeconds: 10,
             maxDeliveryAttempts: 3,
-            defaultMessageTtlSeconds: 1_800,
+            defaultMessageTtlSeconds: 180,
         }),
     }),
     Object.freeze({
@@ -39,9 +49,9 @@ export const PRODUCTION_DAY_QUEUE_PROFILES = Object.freeze([
         queueClass: "warm",
         weight: 10,
         settings: Object.freeze({
-            visibilityTimeoutSeconds: 8,
+            visibilityTimeoutSeconds: 10,
             maxDeliveryAttempts: 3,
-            defaultMessageTtlSeconds: 1_800,
+            defaultMessageTtlSeconds: 180,
         }),
     }),
     Object.freeze({
@@ -49,9 +59,9 @@ export const PRODUCTION_DAY_QUEUE_PROFILES = Object.freeze([
         queueClass: "fault",
         weight: 10,
         settings: Object.freeze({
-            visibilityTimeoutSeconds: 8,
+            visibilityTimeoutSeconds: 10,
             maxDeliveryAttempts: 3,
-            defaultMessageTtlSeconds: 1_800,
+            defaultMessageTtlSeconds: 180,
         }),
     }),
 ]);
@@ -77,18 +87,18 @@ function weightedIndex(slot, denominator) {
 
     for (
         let index = 0;
-        index < PRODUCTION_DAY_QUEUE_PROFILES.length;
+        index < SHOWCASE_QUEUE_PROFILES.length;
         index += 1
     ) {
         upperBound +=
-            (PRODUCTION_DAY_QUEUE_PROFILES[index].weight * denominator) /
+            (SHOWCASE_QUEUE_PROFILES[index].weight * denominator) /
             100;
         if (slot < upperBound) {
             return index;
         }
     }
 
-    return PRODUCTION_DAY_QUEUE_PROFILES.length - 1;
+    return SHOWCASE_QUEUE_PROFILES.length - 1;
 }
 
 function trapezoidIterations(startRate, endRate, seconds) {
@@ -103,125 +113,134 @@ function trapezoidIterations(startRate, endRate, seconds) {
     return iterations;
 }
 
-export function productionDayProducerStages(
-    hourSeconds,
-    transitionSeconds,
-) {
-    const holdSeconds = hourSeconds - transitionSeconds;
-    const stages = [
-        {
-            duration: duration(hourSeconds),
-            target: PRODUCTION_DAY_HOURLY_RATES[0],
-        },
-    ];
-
-    for (
-        let hour = 1;
-        hour < PRODUCTION_DAY_HOURLY_RATES.length;
-        hour += 1
-    ) {
-        stages.push({
-            duration: duration(transitionSeconds),
-            target: PRODUCTION_DAY_HOURLY_RATES[hour],
-        });
-        stages.push({
-            duration: duration(holdSeconds),
-            target: PRODUCTION_DAY_HOURLY_RATES[hour],
-        });
-    }
-
-    return stages;
+export function showcaseActiveLoadMinutes(totalDurationMinutes) {
+    return totalDurationMinutes - SHOWCASE_TAIL_SECONDS / 60;
 }
 
-export function productionDayConsumerRates(headroom) {
-    return PRODUCTION_DAY_HOURLY_RATES.map((rate) => {
-        const target = rate * headroom;
+export function showcaseProducerStages(activeLoadMinutes) {
+    const stages = [];
 
-        if (!Number.isInteger(target)) {
-            throw new Error(
-                `consumer headroom ${headroom} does not produce an integer target for ${rate}/s`,
-            );
+    for (let minute = 0; minute < activeLoadMinutes; minute += 1) {
+        for (const stage of SHOWCASE_RATE_PATTERN) {
+            stages.push({
+                duration: duration(stage.durationSeconds),
+                target: stage.target,
+            });
         }
-
-        return target;
-    });
-}
-
-export function productionDayConsumerStages(settings) {
-    const rates = productionDayConsumerRates(settings.headroom);
-    const holdSeconds = settings.hourSeconds - settings.transitionSeconds;
-    const stages = [
-        {
-            duration: duration(settings.hourSeconds),
-            target: rates[0],
-        },
-    ];
-
-    for (let hour = 1; hour < rates.length; hour += 1) {
-        stages.push({
-            duration: duration(settings.transitionSeconds),
-            target: rates[hour],
-        });
-        stages.push({
-            duration: duration(holdSeconds),
-            target: rates[hour],
-        });
     }
-
-    stages.push({
-        duration: duration(settings.drainRampUpSeconds),
-        target: settings.drainRate,
-    });
-    stages.push({
-        duration: duration(settings.drainHoldSeconds),
-        target: settings.drainRate,
-    });
-    stages.push({
-        duration: duration(settings.drainRampDownSeconds),
-        target: 0,
-    });
 
     return stages;
 }
 
-export function productionDayVerificationStartSeconds(settings) {
-    return (
-        PRODUCTION_DAY_HOURLY_RATES.length * settings.hourSeconds +
+export function showcaseConsumerRate(rate, headroom) {
+    const target = rate * headroom;
+
+    if (!Number.isInteger(target)) {
+        throw new Error(
+            `consumer headroom ${headroom} does not produce an integer target for ${rate}/s`,
+        );
+    }
+
+    return target;
+}
+
+export function showcaseConsumerStages(settings) {
+    const stages = showcaseProducerStages(settings.activeLoadMinutes).map(
+        (stage) => ({
+            duration: stage.duration,
+            target: showcaseConsumerRate(stage.target, settings.headroom),
+        }),
+    );
+
+    stages.push(
+        {
+            duration: duration(settings.drainRampUpSeconds),
+            target: settings.drainRate,
+        },
+        {
+            duration: duration(settings.drainHoldSeconds),
+            target: settings.drainRate,
+        },
+        {
+            duration: duration(settings.drainRampDownSeconds),
+            target: 0,
+        },
+    );
+
+    return stages;
+}
+
+export function showcaseVerificationStartSeconds(settings) {
+    const totalSeconds = settings.durationMinutes * 60;
+    const drainSeconds =
         settings.drainRampUpSeconds +
         settings.drainHoldSeconds +
-        settings.drainRampDownSeconds +
-        settings.cleanerWaitSeconds
-    );
+        settings.drainRampDownSeconds;
+    const observationSeconds =
+        SHOWCASE_TAIL_SECONDS -
+        drainSeconds -
+        SHOWCASE_VERIFICATION_WINDOW_SECONDS;
+
+    if (observationSeconds < 60) {
+        throw new Error(
+            "showcase drain must leave at least one cleaner interval before verification",
+        );
+    }
+
+    return totalSeconds - SHOWCASE_VERIFICATION_WINDOW_SECONDS;
 }
 
-export function expectedProductionDayEnqueues(hourSeconds) {
+function expectedPatternIterations(startRate, stages) {
+    let previousRate = startRate;
+    let iterations = 0;
+
+    for (const stage of stages) {
+        iterations += trapezoidIterations(
+            previousRate,
+            stage.target,
+            stage.durationSeconds,
+        );
+        previousRate = stage.target;
+    }
+
+    return iterations;
+}
+
+export function expectedShowcaseEnqueues(activeLoadMinutes) {
     return (
-        PRODUCTION_DAY_HOURLY_RATES.reduce(
-            (total, rate) => total + rate,
-            0,
-        ) * hourSeconds
+        expectedPatternIterations(
+            SHOWCASE_START_RATE,
+            SHOWCASE_RATE_PATTERN,
+        ) * activeLoadMinutes
     );
 }
 
-export function expectedProductionDayMainConsumerIterations(
-    hourSeconds,
+export function expectedShowcaseMainConsumerIterations(
+    activeLoadMinutes,
     headroom,
 ) {
+    const consumerStages = SHOWCASE_RATE_PATTERN.map((stage) => ({
+        durationSeconds: stage.durationSeconds,
+        target: showcaseConsumerRate(stage.target, headroom),
+    }));
+
     return (
-        productionDayConsumerRates(headroom).reduce(
-            (total, rate) => total + rate,
-            0,
-        ) * hourSeconds
+        expectedPatternIterations(
+            showcaseConsumerRate(SHOWCASE_START_RATE, headroom),
+            consumerStages,
+        ) * activeLoadMinutes
     );
 }
 
-export function expectedProductionDayTailIterations(settings) {
-    const consumerRates = productionDayConsumerRates(settings.headroom);
-    const finalDayRate = consumerRates[consumerRates.length - 1];
+export function expectedShowcaseTailIterations(settings) {
+    const finalRate = showcaseConsumerRate(
+        SHOWCASE_RATE_PATTERN[SHOWCASE_RATE_PATTERN.length - 1].target,
+        settings.headroom,
+    );
 
     return (
         trapezoidIterations(
-            finalDayRate,
+            finalRate,
             settings.drainRate,
             settings.drainRampUpSeconds,
         ) +
@@ -234,7 +253,7 @@ export function expectedProductionDayTailIterations(settings) {
     );
 }
 
-export function productionDayQueueIndex(iteration, role) {
+export function showcaseQueueIndex(iteration, role) {
     if (role === "producer") {
         const slot = (iteration * 137 + 450) % 500;
         return weightedIndex(slot, 500);
@@ -244,7 +263,7 @@ export function productionDayQueueIndex(iteration, role) {
     return weightedIndex(slot, 100);
 }
 
-export function productionDayPriority(iteration) {
+export function showcasePriority(iteration) {
     const block = Math.floor(iteration / 500);
     const slot = (iteration * 37 + block * 17) % 100;
 
@@ -257,7 +276,7 @@ export function productionDayPriority(iteration) {
     return "LOW";
 }
 
-export function productionDayCohort(iteration) {
+export function showcaseCohort(iteration) {
     const slot = iteration % 500;
 
     if (slot === 0) {
@@ -301,7 +320,7 @@ export function productionDayCohort(iteration) {
     };
 }
 
-export function expectedProductionDayCohorts(messageCount) {
+export function expectedShowcaseCohorts(messageCount) {
     const counts = {
         process_1s: 0,
         process_2s: 0,
@@ -345,7 +364,7 @@ export function expectedProductionDayCohorts(messageCount) {
     return counts;
 }
 
-export function expectedProductionDayPriorities(messageCount) {
+export function expectedShowcasePriorities(messageCount) {
     const counts = {
         HIGH: Math.floor(messageCount / 500) * 350,
         MEDIUM: Math.floor(messageCount / 500) * 100,
@@ -358,17 +377,17 @@ export function expectedProductionDayPriorities(messageCount) {
         iteration < messageCount;
         iteration += 1
     ) {
-        counts[productionDayPriority(iteration)] += 1;
+        counts[showcasePriority(iteration)] += 1;
     }
 
     return counts;
 }
 
-export function expectedProductionDayQueues(messageCount) {
+export function expectedShowcaseQueues(messageCount) {
     const completeBlocks = Math.floor(messageCount / 500);
     const counts = {};
 
-    for (const profile of PRODUCTION_DAY_QUEUE_PROFILES) {
+    for (const profile of SHOWCASE_QUEUE_PROFILES) {
         counts[profile.profile] = completeBlocks * profile.weight * 5;
     }
 
@@ -379,8 +398,8 @@ export function expectedProductionDayQueues(messageCount) {
         iteration += 1
     ) {
         const queue =
-            PRODUCTION_DAY_QUEUE_PROFILES[
-                productionDayQueueIndex(iteration, "producer")
+            SHOWCASE_QUEUE_PROFILES[
+                showcaseQueueIndex(iteration, "producer")
             ];
         counts[queue.profile] += 1;
     }
@@ -388,8 +407,8 @@ export function expectedProductionDayQueues(messageCount) {
     return counts;
 }
 
-export function expectedProductionDayDeliveryAccounting(messageCount) {
-    const cohorts = expectedProductionDayCohorts(messageCount);
+export function expectedShowcaseDeliveryAccounting(messageCount) {
+    const cohorts = expectedShowcaseCohorts(messageCount);
     const normalAcknowledgements =
         cohorts.process_1s +
         cohorts.process_2s +
