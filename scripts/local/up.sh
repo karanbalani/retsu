@@ -11,6 +11,12 @@ compose=(docker compose --file infra/local/compose.yaml)
 "${compose[@]}" exec -T postgres \
     sh /docker-entrypoint-initdb.d/observability.sh
 "${compose[@]}" --profile observability up -d --wait
+prometheus_address="$(
+    "${compose[@]}" --profile observability port prometheus 9090 \
+        | tail -n 1
+)"
+curl --fail --silent --show-error --request POST \
+    "http://${prometheus_address}/-/reload"
 ./scripts/local/ready.sh
 
 api_address="$("${compose[@]}" port api 2424 | tail -n 1)"
