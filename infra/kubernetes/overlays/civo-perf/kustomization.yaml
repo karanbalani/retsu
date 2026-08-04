@@ -1,0 +1,18 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: retsu-perf
+
+resources:
+  - namespace.yaml
+  - ../../base
+  - postgres-config-map.yaml
+  - postgres-service.yaml
+  - postgres-stateful-set.yaml
+  - dragonfly-service.yaml
+  - dragonfly-deployment.yaml
+
+images:
+  - name: ghcr.io/karanbalani/retsu
+    newName: ghcr.io/karanbalani/retsu
+    newTag: sha-replace-with-git-commit
